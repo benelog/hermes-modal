@@ -153,6 +153,32 @@ def sync_qmd(embed: bool = False, force_embed: bool = False):
     timeout=60 * 10,
     env=common_env,
 )
+def commit_skills():
+    """Manually push runtime skill changes from the volume to git.
+
+    Run with `modal run modal_app.py::commit_skills`. The same script is also
+    invoked automatically by the `skills-autocommit` Hermes hook on every
+    `agent:end` event, so manual triggering is normally only needed when
+    debugging.
+    """
+    import subprocess
+
+    hermes_volume.reload()
+    result = subprocess.run(
+        ["python", "/opt/hermes-modal/scripts/commit_skills.py"],
+        capture_output=True,
+        text=True,
+    )
+    return f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+
+
+@app.function(
+    image=image,
+    secrets=[secret, github_secret],
+    volumes=volume_mounts,
+    timeout=60 * 10,
+    env=common_env,
+)
 def doctor():
     """Return a compact status report from the Modal runtime."""
     import subprocess

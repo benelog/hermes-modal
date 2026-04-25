@@ -26,6 +26,9 @@ QMD_INDEX_NAME = os.environ.get("QMD_INDEX_NAME", "index")
 BASE = WORKSPACE / "benelog"
 DEFAULT_REPO_MANIFEST = Path(__file__).with_name("qmd_repos.yml")
 SOUL_SOURCE = Path(__file__).with_name("SOUL.md")
+SKILLS_SOURCE = Path(__file__).with_name("skills")
+HOOKS_SOURCE = Path(__file__).with_name("hooks")
+IMAGE_MANIFEST_NAME = ".image-manifest.txt"
 
 
 def load_repo_specs(path: Path = DEFAULT_REPO_MANIFEST) -> list[dict[str, str]]:
@@ -89,6 +92,60 @@ def write_soul_file() -> None:
         return
     target.write_text(content, encoding="utf-8")
     print(f"wrote {target}")
+
+
+def sync_image_dir(src: Path, dst: Path) -> None:
+    """Mirror an image-supplied directory into a HERMES_HOME location.
+
+    The image is the source of truth for files shipped from git. To allow
+    Hermes to add new files at runtime without losing them on the next
+    container start, image-supplied files are tracked in a manifest. Files
+    that were in the previous manifest but are no longer in the image are
+    removed; runtime-only files are preserved.
+    """
+    if not src.exists():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    manifest_path = dst / IMAGE_MANIFEST_NAME
+
+    new_manifest: set[str] = set()
+    for src_file in src.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel = src_file.relative_to(src).as_posix()
+        new_manifest.add(rel)
+        target = dst / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = src_file.read_bytes()
+        if target.exists() and target.read_bytes() == content:
+            continue
+        target.write_bytes(content)
+        print(f"wrote {target}")
+
+    old_manifest: set[str] = set()
+    if manifest_path.exists():
+        old_manifest = {line.strip() for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+
+    for rel in sorted(old_manifest - new_manifest):
+        target = dst / rel
+        if not target.exists():
+            continue
+        target.unlink()
+        print(f"removed {target} (no longer in image)")
+        parent = target.parent
+        while parent != dst and parent.exists() and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
+
+    manifest_path.write_text("\n".join(sorted(new_manifest)) + "\n", encoding="utf-8")
+
+
+def sync_skills_dir() -> None:
+    sync_image_dir(SKILLS_SOURCE, HERMES_HOME / "skills")
+
+
+def sync_hooks_dir() -> None:
+    sync_image_dir(HOOKS_SOURCE, HERMES_HOME / "hooks")
 
 
 def write_hermes_config() -> None:
@@ -269,6 +326,8 @@ def main() -> None:
     ensure_dirs()
     maybe_write_auth_json()
     write_soul_file()
+    sync_skills_dir()
+    sync_hooks_dir()
     write_hermes_config()
     write_env_file()
 

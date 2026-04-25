@@ -1,0 +1,4 @@
+name: skills-autocommit
+description: Push HERMES_HOME/skills changes back to the hermes-modal git repo after each agent turn.
+events:
+  - agent:end
