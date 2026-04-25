@@ -1,0 +1,31 @@
+repos:
+  - name: blog
+    repo_url: git@github.com:benelog/blog.git
+    branch: master
+    collection_path: src/content
+    pattern: "**/*.{md,adoc}"
+  - name: wiki
+    repo_url: git@github.com:benelog/wiki.git
+    branch: master
+    collection_path: content
+    pattern: "**/*.{md,adoc}"
+  - name: devnote
+    repo_url: git@github.com:benelog/devnote.git
+    branch: master
+    collection_path: content
+    pattern: "**/*.{md,adoc}"
+  - name: bookshelf
+    repo_url: git@github.com:benelog/bookshelf.git
+    branch: master
+    collection_path: content
+    pattern: "**/*.{md,adoc}"
+  - name: bookshelf-it
+    repo_url: git@github.com:benelog/bookshelf-it.git
+    branch: master
+    collection_path: content
+    pattern: "**/*.{md,adoc}"
+  - name: diary
+    repo_url: git@github.com:benelog/diary.git
+    branch: master
+    collection_path: content
+    pattern: "**/*.{md,adoc}"
