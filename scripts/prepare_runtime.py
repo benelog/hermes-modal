@@ -25,6 +25,7 @@ QMD_INDEX_NAME = os.environ.get("QMD_INDEX_NAME", "index")
 
 BASE = WORKSPACE / "benelog"
 DEFAULT_REPO_MANIFEST = Path(__file__).with_name("qmd_repos.yml")
+SOUL_SOURCE = Path(__file__).with_name("SOUL.md")
 
 
 def load_repo_specs(path: Path = DEFAULT_REPO_MANIFEST) -> list[dict[str, str]]:
@@ -76,6 +77,17 @@ def maybe_write_auth_json() -> None:
         return
     target.write_bytes(decoded)
     target.chmod(0o600)
+    print(f"wrote {target}")
+
+
+def write_soul_file() -> None:
+    if not SOUL_SOURCE.exists():
+        return
+    target = HERMES_HOME / "SOUL.md"
+    content = SOUL_SOURCE.read_text(encoding="utf-8")
+    if target.exists() and target.read_text(encoding="utf-8", errors="ignore") == content:
+        return
+    target.write_text(content, encoding="utf-8")
     print(f"wrote {target}")
 
 
@@ -256,6 +268,7 @@ def main() -> None:
 
     ensure_dirs()
     maybe_write_auth_json()
+    write_soul_file()
     write_hermes_config()
     write_env_file()
 
