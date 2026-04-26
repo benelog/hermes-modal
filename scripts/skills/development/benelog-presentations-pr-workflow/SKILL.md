@@ -87,14 +87,71 @@ When making both kinds of changes:
 
 8. Push and open a PR if GitHub auth is available.
 
+   First check both live environment variables and the Hermes dotenv file. In Modal/Hermes, `GITHUB_TOKEN` may exist in `~/.hermes/.env` even when it is not exported to the process environment.
+
+   ```bash
+   python - <<'PY'
+from pathlib import Path
+for line in Path.home().joinpath('.hermes/.env').read_text(errors='ignore').splitlines():
+    if line.startswith('GITHUB_TOKEN='):
+        print('GITHUB_TOKEN found in ~/.hermes/.env')
+        break
+PY
+   ```
+
+   If normal push works, use it:
+
    ```bash
    git push -u origin <branch>
+   ```
+
+   If `git push` over HTTPS fails for lack of credentials but `GITHUB_TOKEN` is present in `~/.hermes/.env`, read it without printing the secret and push with an authenticated URL:
+
+   ```bash
+   set +x
+   TOKEN=$(python - <<'PY'
+from pathlib import Path
+for line in Path.home().joinpath('.hermes/.env').read_text(errors='ignore').splitlines():
+    if line.startswith('GITHUB_TOKEN='):
+        print(line.split('=', 1)[1].strip().strip('"\''))
+        break
+PY
+)
+   git push -u "https://x-access-token:${TOKEN}@github.com/benelog/presentations.git" <branch>
    ```
 
    If `gh` is installed and authenticated:
 
    ```bash
    gh pr create --base main --head <branch> --title "..." --body "..."
+   ```
+
+   If `gh` is unavailable but `GITHUB_TOKEN` is present, create the PR with the GitHub REST API. Write the JSON body to a temp file to avoid shell quoting issues; write the response to a file before parsing it.
+
+   ```bash
+   python - <<'PY' > /tmp/pr_body.json
+import json
+print(json.dumps({
+  "title": "Improve AI agent presentation",
+  "head": "<branch>",
+  "base": "main",
+  "body": "## Summary\n- ...\n\n## Verification\n- `npm run build`\n",
+}))
+PY
+   curl -sS -o /tmp/pr_response.json -w '%{http_code}\n' -X POST \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Accept: application/vnd.github+json" \
+     -H "X-GitHub-Api-Version: 2022-11-28" \
+     https://api.github.com/repos/benelog/presentations/pulls \
+     --data @/tmp/pr_body.json > /tmp/pr_status.txt
+   ```
+
+   If the create call returns 422 because a PR already exists for the branch, list the existing PR instead of treating it as failure:
+
+   ```bash
+   curl -sS -H "Authorization: Bearer $TOKEN" \
+     -H "Accept: application/vnd.github+json" \
+     'https://api.github.com/repos/benelog/presentations/pulls?head=benelog:<branch>&state=open'
    ```
 
 ## Fallback when GitHub push auth is unavailable
