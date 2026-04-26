@@ -7,13 +7,7 @@ description: When citing a QMD search hit to the user, convert the source file p
 
 ## When to use
 
-Use this **immediately after every QMD search** when any result will be mentioned to the user. Do not first report raw QMD paths and then derive URLs only if the user asks; enrich the result list with clickable deployed URLs from the beginning.
-
-The user almost always wants a clickable URL to the published page, not the file path under `/root/workspace/benelog/...` and not a wall of raw markdown/asciidoc.
-
-Typical trigger phrases:
-- "찾아줘", "검색해줘", "어디 있어?", "URL은?", "배포된 경로는?"
-- Any answer that cites QMD hits like `diary/post/...`, `bookshelf/post/...`, `devnote/...`, etc.
+After running QMD search and reporting hits to the user. The user almost always wants a clickable URL to the published page, not the file path under `/root/workspace/benelog/...` and not a wall of raw markdown/asciidoc.
 
 ## Repo → subdomain
 
@@ -68,31 +62,10 @@ Examples:
 
 ## Procedure
 
-1. **Before writing the user-facing answer**, scan every QMD result you plan to mention and convert its `file` value into a deployed URL.
-   - QMD often returns paths in the form `<collection>/<relative-path>`, e.g. `diary/post/2025/future-came-first.md` or `bookshelf/post/the-goal-만화판.md`.
-   - Sometimes you may instead have an absolute repo path like `/root/workspace/benelog/diary/content/post/2025/future-came-first.md`.
-   - Normalize either form into `(collection, relative path within the repo content root)`.
-2. Extract the **collection name** (== repo name) and apply the rule for that collection's SSG (table above).
-3. Render the first mention of each hit as a clickable markdown link, not as a raw path. Use the QMD title or frontmatter `title:` if available.
-   - Good: `- [먼저 온 미래](https://diary.benelog.net/2025/future-came-first/) — 독서 감상문`
-   - Bad: `- diary/post/2025/future-came-first.md`
-4. Add a one- or two-line snippet or reason from the QMD result so the user can decide whether to click.
-5. Only include the raw file path when it is specifically useful for local editing/debugging, and then put it after the URL as secondary information.
-6. Do **not** dump the raw markdown/asciidoc body. If the user asks for the actual content, fetch/read it and quote a short excerpt — but link first by default.
-
-## Quick conversion from QMD `file` values
-
-QMD search result `file` values usually omit the `content/` segment. Convert directly like this:
-
-| QMD `file` example | Published URL |
-|---|---|
-| `diary/post/2025/future-came-first.md` | `https://diary.benelog.net/2025/future-came-first/` |
-| `diary/motivation.md` | `https://diary.benelog.net/motivation/` |
-| `bookshelf/post/the-goal-만화판.md` | `https://bookshelf.benelog.net/the-goal-만화판/` |
-| `bookshelf-it/post/growing-object-oriented-software-guided-by-test.md` | `https://bookshelf-it.benelog.net/growing-object-oriented-software-guided-by-test/` |
-| `devnote/api-design.md` | `https://devnote.benelog.net/api-design.html` |
-| `wiki/레전드-언론보도.md` | `https://wiki.benelog.net/레전드-언론보도.html` |
-| `blog/rethink-about-git-flow.adoc` | `https://blog.benelog.net/rethink-about-git-flow.html` |
+1. Receive a QMD hit. Extract the **collection name** (== repo name) and the **file path relative to the collection root** (the `path:` value in `index.yml`, e.g. `bookshelf/content` → relative path is `post/<name>.md`).
+2. Apply the rule for that collection's SSG (table above).
+3. Render in the message as a clickable markdown link with the page title (from frontmatter `title:` for Hugo, the AsciiDoc `=` heading for blog, or the file's H1 for obsidian-site). Add a one- or two-line snippet from the QMD result so the user can decide whether to click.
+4. Do **not** dump the raw markdown/asciidoc body. If the user asks for the actual content, fetch the published page or quote a short excerpt — but link first by default.
 
 ## Pitfalls
 
