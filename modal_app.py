@@ -78,9 +78,8 @@ common_env = {
     secrets=[secret, github_secret],
     volumes=volume_mounts,
     timeout=60 * 60,
-    min_containers=1,
     max_containers=1,
-    scaledown_window=60 * 30,
+    scaledown_window=60 * 10,
     env=common_env,
 )
 @modal.concurrent(max_inputs=50)

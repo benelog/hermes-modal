@@ -154,9 +154,9 @@ Telegram에서 봇에게 메시지를 보내서 end-to-end로 확인합니다.
 
 ## 운영 메모
 
-- Modal app은 `min_containers=1`로 설정했습니다. 항상 켜진 container를 유지하려는 설정입니다.
+- `min_containers`는 지정하지 않았습니다. Telegram 메시지가 들어올 때만 container가 켜지고, 유휴 상태가 `scaledown_window`(현재 600초) 동안 이어지면 자동 종료됩니다. 24/7 과금을 피하려는 설정입니다.
+- 첫 메시지는 cold start로 몇 초~십수 초 늦어질 수 있습니다. 응답 지연이 부담되면 `min_containers=1`을 다시 추가하면 되지만, 그러면 사용량과 무관하게 매월 고정 비용이 발생합니다.
 - `max_containers=1`로 Telegram bot 중복 실행을 막았습니다.
-- `scaledown_window=1800`도 지정했지만, `min_containers=1` 때문에 최소 1개는 유지되어야 합니다.
 - qmd 문서 업데이트는 cron/GitHub Actions에서 `modal run modal_app.py::sync_qmd`를 주기적으로 호출하는 방식이 깔끔합니다.
 - 현재 `HERMES_MODEL_PROVIDER=openai-codex` + `HERMES_AUTH_JSON_B64` 복사 방식입니다. OAuth 토큰 만료/갱신 이슈가 생기면 OpenRouter/Anthropic/API-key provider로 바꾸는 편이 더 안정적입니다.
 
