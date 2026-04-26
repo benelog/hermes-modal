@@ -71,6 +71,7 @@ Examples:
 
 ## Pitfalls
 
+- QMD result `file` values can differ from the actual local filename because of normalization (for example, a result may show `wiki/레전드-언론보도.md` while the checked-out repo contains `레전드 언론보도.md`). If `mcp_qmd_get` returns empty or the path is not found, do not stop: run `mcp_qmd_status` to find the collection root, then use `search_files(target='files')` or a content search in that collection to locate the actual file and read it with `read_file`.
 - `tags`, `archive`, `index`, `_index.md`, `tags.adoc` etc. are meta pages with their own routing. If a QMD hit points at one of these, link to the site root instead and note that it's an index page.
 - Korean filenames in URLs are valid; do not URL-encode them when displaying — both the browser address bar and Markdown link renderers handle them. (Some Telegram clients show the percent-encoded form; that's display-only and the link still works.)
 - diary URLs need the year segment. A bare `<basename>` will silently 404. Always include the directory between `content/post/` and the file.
