@@ -7,7 +7,9 @@ description: When citing a QMD search hit to the user, convert the source file p
 
 ## When to use
 
-After running QMD search and reporting hits to the user. The user almost always wants a clickable URL to the published page, not the file path under `/root/workspace/benelog/...` and not a wall of raw markdown/asciidoc.
+After running QMD search, reading a QMD/benelog markdown or AsciiDoc file, or quoting any content from those files to the user. The user expects a clickable deployed URL whenever a QMD/benelog source file is cited or quoted, even when they ask for the full raw content of a short document.
+
+The user almost always wants a clickable URL to the published page, not only the file path under `/root/workspace/benelog/...`.
 
 ## Repo → subdomain
 
@@ -65,7 +67,7 @@ Examples:
 1. Receive a QMD hit. Extract the **collection name** (== repo name) and the **file path relative to the collection root** (the `path:` value in `index.yml`, e.g. `bookshelf/content` → relative path is `post/<name>.md`).
 2. Apply the rule for that collection's SSG (table above).
 3. Render in the message as a clickable markdown link with the page title (from frontmatter `title:` for Hugo, the AsciiDoc `=` heading for blog, or the file's H1 for obsidian-site). Add a one- or two-line snippet from the QMD result so the user can decide whether to click.
-4. Do **not** dump the raw markdown/asciidoc body. If the user asks for the actual content, fetch the published page or quote a short excerpt — but link first by default.
+4. If the user asks for the actual content, still put the deployed URL first. Prefer a short excerpt for long documents; for very short documents where the user explicitly asks for the whole content, it is acceptable to quote the full markdown/asciidoc body after the URL.
 
 ## Pitfalls
 
