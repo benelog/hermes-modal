@@ -5,3 +5,5 @@ __pycache__/
 !.env.example
 secrets.env
 *.log
+auth.json
+*.auth.json

@@ -5,6 +5,11 @@ This script does not print secret values. It copies safe runtime values from
 ~/.hermes/.env and encodes ~/.hermes/auth.json as HERMES_AUTH_JSON_B64 so the
 cloud Hermes instance can use the same OAuth credential pool if you keep the
 current openai-codex provider.
+
+GITHUB_TOKEN is intentionally NOT included here. `modal secret create --force`
+replaces the whole secret, so any UI-managed GITHUB_TOKEN would be wiped.
+Manage GITHUB_TOKEN in the separate `github-secret` Modal Secret instead;
+modal_app.py mounts both secrets together.
 """
 
 from __future__ import annotations
@@ -30,12 +35,12 @@ COPY_ENV_KEYS = [
     "OPENAI_API_KEY",
     "GOOGLE_API_KEY",
     "GEMINI_API_KEY",
-    "GITHUB_TOKEN",
     "GIT_SSH_PRIVATE_KEY",
     "QMD_EMBED_MODEL",
     "QMD_GENERATE_MODEL",
     "QMD_RERANK_MODEL",
 ]
+# GITHUB_TOKEN is deliberately omitted — see module docstring.
 
 DEFAULTS = {
     "HERMES_MODEL_PROVIDER": "openai-codex",
@@ -102,6 +107,12 @@ def main() -> None:
     values = build_secret_values(args.webhook_url)
     if "TELEGRAM_BOT_TOKEN" not in values:
         raise SystemExit("TELEGRAM_BOT_TOKEN not found in ~/.hermes/.env or environment")
+
+    if os.environ.get("GITHUB_TOKEN") or parse_env(LOCAL_ENV).get("GITHUB_TOKEN"):
+        print(
+            "Note: GITHUB_TOKEN found in environment but skipped. "
+            "Put it in the separate `github-secret` Modal Secret instead."
+        )
 
     print(f"Creating/updating Modal secret {args.name} with keys:")
     for key in sorted(values):

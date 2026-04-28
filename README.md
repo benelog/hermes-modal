@@ -44,12 +44,18 @@ private repo 접근은 둘 중 하나가 필요합니다.
 2. `GIT_SSH_PRIVATE_KEY`
    - GitHub deploy key 또는 별도 read-only key
 
-- `scripts/create_modal_secret.py`는 로컬 `.env`에 있는 `GITHUB_TOKEN` 또는 환경변수의 `GITHUB_TOKEN`을 복사합니다.
-- GitHub token을 별도 Modal Secret으로 관리한다면 secret 이름은 `github-secret`, key 이름은 `GITHUB_TOKEN`으로 두세요. `modal_app.py`는 `hermes-modal-secrets`와 `github-secret`을 함께 주입합니다.
-현재 로컬 `.env`에는 GitHub token이 없으므로, private repo에 대한 인덱싱을 Local에서 테스트하려면 아래처럼 실행 전에 넣어야 합니다.
+- `GITHUB_TOKEN`은 별도 Modal Secret `github-secret`에 두세요. `modal_app.py`가 `hermes-modal-secrets`와 `github-secret`을 함께 주입합니다.
+- `scripts/create_modal_secret.py`는 의도적으로 `GITHUB_TOKEN`을 건드리지 않습니다. `modal secret create --force`가 secret 전체를 교체하기 때문에, 만약 이 스크립트가 token을 넣고 빠뜨리는 경우가 생기면 UI에서 추가한 `github-secret`을 덮어쓸 위험이 있습니다.
+- private repo에 대한 인덱싱을 로컬에서 테스트만 하려면 환경변수만 임시로 주입하세요.
 
 ```bash
 export GITHUB_TOKEN='github_pat_...'
+```
+
+Modal에 처음 `github-secret`을 만들 때:
+
+```bash
+modal secret create github-secret GITHUB_TOKEN='github_pat_...'
 ```
 
 ## 1. Modal CLI 설치/로그인
@@ -171,6 +177,43 @@ TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_WEBHOOK_URL is set
 ```
 
 `create_modal_secret.py`를 다시 실행해 secret을 갱신하세요.
+
+### Codex OAuth refresh token이 다른 클라이언트에 의해 소비됨
+
+챗봇이 다음과 같이 실패하는 경우:
+
+```text
+Provider authentication failed: Codex refresh token was already consumed by
+another client (e.g. Codex CLI or VS Code extension). Run codex in your
+terminal to generate fresh tokens, then run hermes auth to re-authenticate.
+```
+
+같은 OAuth refresh token을 로컬 Codex CLI/VS Code와 Modal Hermes가 공유하다가 한쪽이 refresh하면서 다른 쪽 토큰이 무효화된 상태입니다. 로컬에서 토큰을 새로 받아 Modal Secret을 갱신하면 복구됩니다.
+
+```bash
+# 1) 로컬에서 새 토큰 발급 (둘 중 하나)
+hermes auth
+# 또는
+codex   # 로그인 흐름이 끝나면 ~/.hermes/auth.json이 갱신됨
+
+# 2) auth.json mtime이 갱신됐는지 확인
+ls -la ~/.hermes/auth.json
+
+# 3) Modal Secret 재생성 — auth.json 전체를 다시 base64로 올림
+python3 scripts/create_modal_secret.py
+
+# 4) 새 secret을 컨테이너가 읽도록 재배포
+modal deploy modal_app.py
+```
+
+참고: `create_modal_secret.py`는 `modal secret create --force`로 `hermes-modal-secrets`를 통째로 교체합니다. 다만 `GITHUB_TOKEN`은 별도 Modal Secret(`github-secret`)에서 관리하므로 이 스크립트로 인해 덮어써질 일은 없습니다. UI에서 모든 secret을 갱신해서 쓰는 흐름이라면 아래처럼 base64만 직접 갱신해도 됩니다.
+
+```bash
+# Modal UI에서 수동 갱신용 base64 출력
+base64 -w0 < ~/.hermes/auth.json
+```
+
+근본적으로는 로컬 Codex CLI 사용을 줄이거나, OpenRouter/Anthropic/OpenAI API key provider로 전환하면 이 충돌이 사라집니다.
 
 ### qmd가 collection을 못 찾음
 
