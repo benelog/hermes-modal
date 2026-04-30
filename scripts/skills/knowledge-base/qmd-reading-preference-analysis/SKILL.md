@@ -31,19 +31,12 @@ Use this when the user asks for their book taste, reading preferences, favorite 
    - Comics/graphic nonfiction if relevant:
      - `books that are comics manga graphic novels read by the user`
 
-4. Treat lex/vector search cautiously.
+4. Treat lex search cautiously.
    - Korean lex queries with `OR` may return no results even when semantically relevant docs exist.
-   - Vector queries can fail if the QMD database/index is temporarily unhealthy (for example, `database disk image is malformed`).
-   - If lex returns empty, retry with vector search in English/Korean when available.
+   - If lex returns empty, retry with vector search in English/Korean.
    - Use snippets and tags to verify each theme.
 
-5. When QMD is empty, weak, or malformed, use a targeted raw-file fallback for exact preference phrases.
-   - Prefer `execute_code` with Python `pathlib` to scan `/root/workspace/benelog/bookshelf/content/post` and `/root/workspace/benelog/bookshelf-it/content/post` directly; this avoids the Hermes `read_file` 50-tool-call limit because Python reads files from disk itself.
-   - Search for Korean/English preference markers such as `가장 재미`, `재미있게 읽`, `재밌게`, `재밌`, `잡자마자`, `끝까지 한번에`, `끝까지 한 번에`, `재미있었습니다`, `재미있었다`, `올해 읽은 책 중 최고의 책`, `좋아하는`, `감동`.
-   - Extract title from frontmatter and print file path, title, line number, and matching line; then read only the top candidate files with `read_file` for verification and citation.
-   - This fallback is especially useful for questions like “내가 가장 재미있게 읽은 책은?” where exact wording in notes matters more than semantic clustering.
-
-6. Synthesize preferences by repeated clusters, not isolated hits.
+5. Synthesize preferences by repeated clusters, not isolated hits.
    - Strong clusters observed in this user's QMD included:
      - software engineering: architecture, TDD, OO design, agile, readable code, Java/Spring
      - organization/leadership: Peopleware, Slack, team lead, leadership questions, work communication
