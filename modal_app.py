@@ -35,9 +35,9 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("bash", "ca-certificates", "curl", "git", "openssh-client")
     .run_commands(
-        "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
+        "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -",
         "apt-get install -y nodejs",
-        "npm install -g @tobilu/qmd@2.1.0",
+        "npm install -g kqmd@2.1.0-kqmd.1",
     )
     .pip_install(
         "hermes-agent[messaging,mcp,cron,cli] @ git+https://github.com/NousResearch/hermes-agent.git",

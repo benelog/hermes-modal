@@ -1,4 +1,4 @@
-# Hermes on Modal with Telegram Webhook + qmd
+# Hermes on Modal with Telegram Webhook + kqmd
 
 **목표**: 개인 지식 DB로 바탕으로 대답하는 Telegram 챗봇을 **비용 0원**으로 서빙하기.
 
@@ -6,7 +6,7 @@
     * 인덱싱 대상은 [`scripts/qmd_repos.yml`](scripts/qmd_repos.yml)에 정의
 - Modal container는 Telegram 메시지가 올 때만 켜졌다가 유휴 시 자동 종료
     - Modal free tier 한도 활용을 목표로 (`min_containers` 미지정 + `scaledown_window=600`).
-    - Hermes(LLM agent) + qmd(GitHub repo 임베딩 검색 MCP) + Telegram webhook을 한 컨테이너에  띄움
+    - Hermes(LLM agent) + [kqmd](https://github.com/jylkim/kqmd)(GitHub repo 임베딩 검색 MCP, qmd의 한글 형태소 분석 강화 fork) + Telegram webhook을 한 컨테이너에  띄움
 
 ## 파일 구성
 
