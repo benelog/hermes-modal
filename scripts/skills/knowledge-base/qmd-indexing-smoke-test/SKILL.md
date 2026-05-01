@@ -7,40 +7,12 @@ description: Test whether QMD indexing/search is working for a user question, es
 
 Use this when the user asks whether QMD is working, whether a collection is indexed, or asks a question intended to test QMD retrieval.
 
-## Maintenance / repair workflow
-
-Use this when the user asks to re-index, re-embed, or fix QMD health warnings.
-
-1. Capture the starting state with `qmd status` and preserve the meaning of the counters in your explanation:
-   - `Missing`: documents lacking embeddings for the effective model.
-   - `Mismatch`: documents with embeddings from a different model.
-   - `Search Policy Health`: Korean lexical index health; `untracked index` usually needs `qmd update`.
-2. Rebuild the Korean lexical index first:
-   - Run `qmd update`.
-   - Verify `Search Policy Health: clean` and `Indexed: total/total`.
-3. Rebuild embeddings second:
-   - If the model changed or status recommends it, run `qmd embed --force`.
-   - Otherwise run `qmd embed` to fill only missing embeddings.
-   - This QMD CLI version accepts only `qmd embed [-f|--force]`; do not add batch-size options even if help text advertises them, unless `qmd embed --help` proves they are accepted.
-4. Explain apparent progress reversals correctly:
-   - After `--force`, old mismatched embeddings can become missing current-model embeddings.
-   - Example: `Missing: 0, Mismatch: 995` can legitimately become `Missing: 975, Mismatch: 0` after the first 20 documents are rebuilt.
-5. Long CPU embedding runs may terminate or be interrupted. If continuing in the background:
-   - Start with `qmd embed` rather than `--force` once mismatches are cleared, so it resumes missing documents.
-   - Poll `qmd status` for actual progress; process handles can disappear even after partial progress.
-   - If no `ps` exists, scan `/proc/*/cmdline` for `qmd embed`.
-6. Verify completion with `qmd status`:
-   - `Missing: 0`, `Mismatch: 0`, `Embedding Model Health: clean`, and `Search Policy Health: clean`.
-
-See `references/qmd-reindex-reembed-watchdog.md` for a concrete session transcript pattern, including Hermes cron scheduler pitfalls.
-
 ## Steps
 
 1. Check index health first:
-   - Call `mcp_qmd_status()` or run `qmd status` when the MCP tool is unavailable or maintenance commands are needed.
+   - Call `mcp_qmd_status()`.
    - Confirm total docs, collections, and vector index availability.
-   - Note if `needsEmbedding`/`Missing` is non-zero; search can still work, but some semantic recall may be incomplete.
-   - Distinguish `Missing` from `Mismatch`: `Mismatch` means embeddings exist but were produced by a different model than the effective model, so semantic search may be stale until rebuilt.
+   - Note if `needsEmbedding` is non-zero; search can still work, but some semantic recall may be incomplete.
 
 2. Start with the most likely collection(s), not all collections if the domain is obvious:
    - Reading/book questions: `bookshelf`, sometimes `bookshelf-it`.
