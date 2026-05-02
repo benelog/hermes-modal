@@ -46,6 +46,12 @@ This is for repository content editing. For only pulling QMD repos and refreshin
    - Do not commit or push unless the user explicitly asks.
    - Mention the modified file and whether changes are only in the working tree.
 
+6. If the user explicitly asks to commit and push:
+   - Ensure git identity is configured for the repo; for benelog repos, `Sanghyuk Jung <benelog@gmail.com>` is the established identity if missing.
+   - If there are uncommitted changes from this task, `git add <files>` and commit them first, then run `git pull --rebase origin master` and `git push origin master`.
+   - If push is rejected because remote has new commits, rebase onto `origin/master` and push again.
+   - Verify with `git status --short` and report the final short commit hash.
+
 ## Pitfalls
 
 - Do not run full QMD sync/update unless the user asks for search/index refresh; a simple content edit only needs a file change and diff verification.
