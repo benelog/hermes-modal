@@ -35,6 +35,16 @@ curl -L --silent --max-time 90 \
   | grep -i -A2 -B2 -E 'Description|Chapters|①|②|③|④|plugin|MCP|Report|Hook'
 ```
 
+4. If you need to slice/inspect the Jina output with Python, save it to a temp file or pass Python code with `-c`. Do **not** combine a pipe with `python3 - <<'PY' ... PY` and then call `sys.stdin.read()`; the heredoc consumes stdin for the code, so the piped Jina content is lost and output can appear empty even though `curl | wc -c` shows bytes.
+
+```bash
+tmp=$(mktemp)
+curl -L --silent --max-time 90 \
+  'https://r.jina.ai/http://r.jina.ai/http://https://www.youtube.com/watch?v=VIDEO_ID' > "$tmp"
+sed -n '1,180p' "$tmp"
+rm "$tmp"
+```
+
 ## Example learning from `L94yAQR9VvA`
 
 The Jina output exposed title, chapters, and description for a video about four official Claude Code plugins:
