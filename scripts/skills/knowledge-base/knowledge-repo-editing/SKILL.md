@@ -53,7 +53,8 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
 
 3. **Fetch reliable source metadata/content**
    - For normal web pages, retrieve title, headings, description, and key points with `curl`/`python` or Jina Reader:
-     - `https://r.jina.ai/http://r.jina.ai/http://<URL>`
+     - Use `https://r.jina.ai/http://https://<host>/<path>` for HTTPS pages (or `https://r.jina.ai/http://http://<host>/<path>` for HTTP pages).
+     - If a Jina Reader URL returns 403 or empty content, retry with the original URL scheme explicitly included after `/http://`; avoid accidentally nesting `r.jina.ai` twice.
    - For YouTube, direct transcript tools may be blocked from cloud IPs. Prefer:
      - `https://www.youtube.com/oembed?url=<youtube-url>&format=json` for title/channel.
      - `https://r.jina.ai/http://r.jina.ai/http://<youtube-url>` for title, description, chapters, timestamps, and pinned links.
@@ -103,6 +104,7 @@ Report concisely in Korean:
 
 - Do not commit unrelated pre-existing changes.
 - Do not cite raw local markdown paths as if they are public pages. If quoting/citing QMD/benelog files to the user, include the deployed URL when applicable.
+- For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
 - YouTube transcripts often fail from cloud IPs with bot checks; use oEmbed and Jina Reader fallback.
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
 - If the user explicitly says not to commit/push, leave changes in the working tree and report that state.
