@@ -32,10 +32,25 @@ curl -L --silent --max-time 90 \
 ```bash
 curl -L --silent --max-time 90 \
   'https://r.jina.ai/http://r.jina.ai/http://https://www.youtube.com/watch?v=VIDEO_ID' \
-  | grep -i -A2 -B2 -E 'Description|Chapters|①|②|③|④|plugin|MCP|Report|Hook'
+  | grep -i -A2 -B2 -E 'Description|Chapters|①|②|③|④|plugin|MCP|Report|Hook|Speakers|Presented|prod|vibe'
 ```
 
-4. If you need to slice/inspect the Jina output with Python, save it to a temp file or pass Python code with `-c`. Do **not** combine a pipe with `python3 - <<'PY' ... PY` and then call `sys.stdin.read()`; the heredoc consumes stdin for the code, so the piped Jina content is lost and output can appear empty even though `curl | wc -c` shows bytes.
+4. If the double-reader URL exposes only partial metadata, try the single-reader variants too. For some YouTube pages they surface the same description block plus comments/recommendations in a different order, which can help confirm title, event, date, speaker, and community reaction without a transcript:
+
+```bash
+for u in \
+  'https://r.jina.ai/http://https://www.youtube.com/watch?v=VIDEO_ID' \
+  'https://r.jina.ai/http://http://www.youtube.com/watch?v=VIDEO_ID' \
+  'https://r.jina.ai/http://https://m.youtube.com/watch?v=VIDEO_ID'; do
+  echo "--- $u"
+  curl -L -sS --max-time 60 "$u" \
+    | grep -i -A3 -B3 -E 'Description|Chapters|Speakers|Presented|Claude Code|production|prod|vibe'
+done
+```
+
+5. Treat YouTube comments as weak evidence only. They can support notes like “audience reaction included concerns about production use,” but should not be used as authoritative facts about the talk. When transcript access is blocked and the description is truncated (e.g. `Speakers: …`), keep the summary at the metadata level and mention the limitation in the final response.
+
+6. If you need to slice/inspect the Jina output with Python, save it to a temp file or pass Python code with `-c`. Do **not** combine a pipe with `python3 - <<'PY' ... PY` and then call `sys.stdin.read()`; the heredoc consumes stdin for the code, so the piped Jina content is lost and output can appear empty even though `curl | wc -c` shows bytes.
 
 ```bash
 tmp=$(mktemp)
