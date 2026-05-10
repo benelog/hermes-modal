@@ -52,6 +52,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Respect repo conventions, especially list indentation, section structure, and language style.
 
 3. **Fetch reliable source metadata/content**
+   - If the user provides an aggregator/share URL such as `https://share.google/...`, resolve redirects first with `requests.get(..., allow_redirects=True)` or `curl -Ls -o /dev/null -w '%{url_effective}'` and use the canonical destination URL in the note unless the user explicitly wants the share URL preserved.
    - For normal web pages, retrieve title, headings, description, and key points with `curl`/`python` or Jina Reader:
      - Use `https://r.jina.ai/http://https://<host>/<path>` for HTTPS pages (or `https://r.jina.ai/http://http://<host>/<path>` for HTTP pages).
      - If a Jina Reader URL returns 403 or empty content, retry with the original URL scheme explicitly included after `/http://`; avoid accidentally nesting `r.jina.ai` twice.
