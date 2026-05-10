@@ -73,6 +73,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Preserve existing bullet indentation and link style.
    - Insert the item in the most specific relevant section, not just at the end.
    - Use canonical/original source URLs when the user asks to replace a video with its referenced article.
+   - If the user asks to switch existing article links to Naver News sources, search Naver News by exact/near-exact article title, verify the Naver result title matches the existing article, and replace only confidently matched `n.news.naver.com` URLs. Leave non-matches unchanged and report which ones were changed or already Naver.
    - Keep Korean notes concise; avoid long explanations when a short summary was requested.
    - For plugin/tool summaries, one nested bullet per plugin/tool is often clearer than a prose paragraph.
 
