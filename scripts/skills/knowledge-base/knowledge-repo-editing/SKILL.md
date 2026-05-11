@@ -110,7 +110,7 @@ Report concisely in Korean:
 - Do not commit unrelated pre-existing changes.
 - Do not cite raw local markdown paths as if they are public pages. If quoting/citing QMD/benelog files to the user, include the deployed URL when applicable.
 - For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
-- For wiki `ai-trend.md` link placement conventions, see `references/wiki-ai-trend-placement.md`.
+- For wiki `ai-trend.md` link placement conventions, including the user's preferred messenger export format for the Token section, see `references/wiki-ai-trend-placement.md`.
 - YouTube transcripts often fail from cloud IPs with bot checks; use oEmbed and Jina Reader fallback.
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
 - If the user explicitly says not to commit/push, leave changes in the working tree and report that state.
