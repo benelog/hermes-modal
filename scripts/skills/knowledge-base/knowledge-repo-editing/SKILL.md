@@ -114,4 +114,6 @@ Report concisely in Korean:
 - For wiki `ai-trend.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content/ai-trend.md>`.
 - YouTube transcripts often fail from cloud IPs with bot checks; use oEmbed and Jina Reader fallback.
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
+- If a precise `patch` edit unexpectedly reports multiple matches, do not force a broad replacement. Re-read nearby lines and use a small deterministic script to insert/replace relative to a verified unique heading or marker, then inspect `git diff` carefully.
+- Some news sites (e.g. mobile/AMP Seoul Economic Daily URLs) may return 403 to direct `requests`/`curl` while Jina Reader succeeds; use Jina for source extraction and keep the original user-provided/canonical URL in the note.
 - If the user explicitly says not to commit/push, leave changes in the working tree and report that state.
