@@ -13,6 +13,8 @@ Observed structure and placement conventions:
 - Prefer canonical resolved URLs over share URLs. For `share.google` links that resolve to Daum News (`v.daum.net/...`), cite the Daum URL unless the original publisher URL is easily available and clearly canonical.
 - If the user asks to replace Token-section Korean news links with Naver sources, search Naver News by exact title and replace only confident matching `n.news.naver.com` results; keep already-Naver links unchanged and report non-matches.
 - If the user asks for a messenger/plain-text roundup of Token-section articles, output only the requested scope (e.g. Korean press only) in repeated 3-line blocks: `기사제목 [언론사, YYYY-MM-DD]`, URL, blank line. Normalize all dates to ISO `YYYY-MM-DD`. Exclude non-Korean sources such as The Pragmatic Engineer when the user says 한국언론 기사만.
+- If the user asks to sort linked articles by date, sort top-level bullets within each section by article/source date descending, keeping each bullet's nested summary attached. For items with no date in the note, visit the URL (Jina Reader first, then original page/search fallback) and add the confirmed source/date in parentheses when useful. If no reliable date is recoverable after visiting, leave the item at the bottom of its section and report that caveat.
+- After sorting, verify with a small script that each section's known dates are descending; unresolved-date items should not break the check and should remain after dated items.
 - Remote edits may rename headings or restructure this file. Pull/re-read the file before choosing the section and preserve upstream heading names during conflict resolution.
 
 Session examples:
