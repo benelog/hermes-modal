@@ -109,6 +109,7 @@ Report concisely in Korean:
 
 - Do not commit unrelated pre-existing changes.
 - Do not cite raw local markdown paths as if they are public pages. If quoting/citing QMD/benelog files to the user, include the deployed URL when applicable.
+- For devnote deployed URLs, `content/<slug>.md` maps to `https://devnote.benelog.net/<slug>`; verify with a quick `curl -I`/HTTP status check when first using a slug in a session.
 - For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
 - For wiki `ai-trend.md` link placement conventions, including the user's preferred messenger export format and date sorting rules, see `references/wiki-ai-trend-placement.md`.
 - For wiki `ai-trend.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content/ai-trend.md>`.

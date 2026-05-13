@@ -19,12 +19,22 @@ print(urllib.request.urlopen(url, timeout=20).read().decode())
 PY
 ```
 
-2. Fetch a markdown rendering via Jina Reader. The double `r.jina.ai/http://...` form has worked for YouTube watch pages and can expose description and chapters even when direct YouTube access is limited:
+2. Fetch a markdown rendering via Jina Reader. The double `r.jina.ai/http://...` form has worked for YouTube watch pages and can expose description and chapters even when direct YouTube access is limited. Do not rely only on the first screenful: YouTube/Jina output can repeat metadata and place the full description or later chapters several hundred lines down.
 
 ```bash
 curl -L --silent --max-time 90 \
   'https://r.jina.ai/http://r.jina.ai/http://https://www.youtube.com/watch?v=VIDEO_ID' \
-  | sed -n '1,220p'
+  | sed -n '1,260p'
+```
+
+If chapter lists appear incomplete, inspect lower ranges too:
+
+```bash
+tmp=$(mktemp)
+curl -L --silent --max-time 90 \
+  'https://r.jina.ai/http://r.jina.ai/http://https://www.youtube.com/watch?v=VIDEO_ID' > "$tmp"
+sed -n '700,860p' "$tmp"
+rm "$tmp"
 ```
 
 3. Grep for key sections if the output is long:
