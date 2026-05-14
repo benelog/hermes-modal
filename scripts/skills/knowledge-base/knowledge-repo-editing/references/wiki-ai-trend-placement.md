@@ -5,7 +5,8 @@ Use when adding AI industry/trend news links to `/root/workspace/benelog/wiki/co
 Observed structure and placement conventions:
 
 - Deployed page: `https://wiki.benelog.net/ai-trend`.
-- General model/company mood, product launches, and frontier model news: place under `## 업계 분위기` unless a more specific section exists.
+- General model/company mood, product launches, frontier model news, AI-native product/team operating practices, and AX adoption case studies: place under `## 업계 분위기` unless a more specific section exists.
+- For dated article additions under `## 업계 분위기`, insert at the date-sorted position (newest first) rather than appending; Korean newsletter dates can often be confirmed from the original HTML when Jina Reader omits them.
 - AI company/business outlook and competitive positioning: place under `## 기업 전망`.
 - Token usage, tokenmaxxing, AI inference/tooling spend, budget exhaustion, token-based pricing/monetization, input-vs-output token pricing, and AI cost-management articles: place under `## Token 사용 경향`.
 - Keep each article as one top-level bullet with 3–5 concise nested Korean bullets; include source and date in parentheses when available.
