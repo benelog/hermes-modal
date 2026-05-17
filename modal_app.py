@@ -124,6 +124,40 @@ def gateway():
     image=image,
     secrets=[secret, github_secret],
     volumes=volume_mounts,
+    timeout=60 * 60,
+    max_containers=1,
+    schedule=modal.Cron("0 7 * * *", timezone="Asia/Seoul"),
+    env=common_env,
+)
+def cron_tick():
+    """Wake the Modal app every morning and run due Hermes cron jobs.
+
+    Hermes' built-in scheduler only ticks while the gateway process is running.
+    This Modal schedule keeps the Telegram webhook server scale-to-zero friendly:
+    Modal wakes a short-lived container at 07:00 KST, runs `hermes cron tick`,
+    persists cron state/output back to the Hermes volume, and exits.
+    """
+    import subprocess
+
+    hermes_volume.reload()
+    subprocess.run(
+        ["python", "/opt/hermes-modal/scripts/prepare_runtime.py", "--fast"],
+        check=True,
+    )
+    result = subprocess.run(
+        ["hermes", "cron", "tick"],
+        capture_output=True,
+        text=True,
+    )
+    hermes_volume.commit()
+    result.check_returncode()
+    return f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+
+
+@app.function(
+    image=image,
+    secrets=[secret, github_secret],
+    volumes=volume_mounts,
     timeout=60 * 60 * 4,
     env=common_env,
 )
