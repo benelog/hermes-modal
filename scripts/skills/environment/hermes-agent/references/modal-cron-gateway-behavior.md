@@ -122,3 +122,21 @@ Do not tell users that Modal automatically wakes for Hermes cron jobs unless the
 When testing a Modal scheduled function with `modal run modal_app.py::cron_tick`, run it from the project directory that contains all local assets referenced by the image (for example `scripts/` if the image uses `.add_local_dir("scripts", ...)`). Running from a directory that only has `modal_app.py` can fail locally with `FileNotFoundError('local dir /root/scripts does not exist')` even if the deployed app itself has the scheduled function.
 
 `hermes cron status` showing "Gateway is running — cron jobs will fire automatically" only proves the currently running gateway process will tick cron while alive. It does not prove Modal has a scheduled trigger for scale-to-zero wakeups; inspect `modal_app.py` and deployed functions for that.
+
+A toolset can be enabled for cron but still load no tools at runtime if the toolset's availability check fails. For web search specifically, `hermes tools list --platform cron` may show `web` enabled, while cron session JSON still has `"tools": []` because no web backend is configured. Diagnose with:
+
+```bash
+python /usr/local/lib/python3.11/site-packages/tools/web_tools.py
+python - <<'PY'
+from model_tools import get_tool_definitions
+for toolsets in [['web'], ['web', 'terminal', 'code_execution']]:
+    tools = get_tool_definitions(
+        enabled_toolsets=toolsets,
+        disabled_toolsets=['cronjob', 'messaging', 'clarify'],
+        quiet_mode=True,
+    )
+    print(toolsets, [t['function']['name'] for t in tools])
+PY
+```
+
+If the diagnostic says `No web search backend configured`, add one of `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, or Nous Tool Gateway settings to the Modal secret / Hermes environment and optionally set `web.backend`. As a fallback for scheduled news jobs, include `terminal` and `code_execution` in `enabled_toolsets` and explicitly instruct the job to query public RSS/news endpoints if `web_search` is unavailable.

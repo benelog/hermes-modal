@@ -61,7 +61,11 @@ Use this skill whenever the user asks about configuring, setting up, installing,
      ```
    - `hermes gateway restart` may hang in manual-process/Modal-style environments. If it times out, do not repeatedly retry; verify current status and report whether the running process will pick up the change or needs a safe external restart.
 
-6. **Verification**
+6. **Cron jobs on Modal**
+   - For Modal/serverless Telegram deployments, distinguish Hermes cron state from Modal wakeup triggers.
+   - See `references/modal-cron-gateway-behavior.md` for: verifying `modal.Cron` + deployed `cron_tick`, checking `hermes cron` outputs/sessions, and diagnosing cases where the `web` toolset is enabled but `web_search` is unavailable because no backend API key/gateway is configured.
+
+7. **Verification**
    - Run `hermes config check` for schema/config validation when editing config.
    - Run `hermes status` to verify platform/service behavior.
    - Inspect relevant logs under `~/.hermes/logs/` if status output is insufficient.
