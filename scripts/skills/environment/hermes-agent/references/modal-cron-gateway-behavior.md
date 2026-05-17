@@ -140,3 +140,40 @@ PY
 ```
 
 If the diagnostic says `No web search backend configured`, add one of `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, or Nous Tool Gateway settings to the Modal secret / Hermes environment and optionally set `web.backend`. As a fallback for scheduled news jobs, include `terminal` and `code_execution` in `enabled_toolsets` and explicitly instruct the job to query public RSS/news endpoints if `web_search` is unavailable.
+
+## Git-tracking Hermes cron job definitions
+
+Hermes cron job state normally lives in `~/.hermes/cron/jobs.json`, not in the Modal app git repository. When the user wants cron prompt/toolset changes to be managed in git, store only declarative, non-secret, non-runtime fields in a repo file such as `cron_jobs/<job-name>.json`:
+
+- include: `job_id`, `name`, `schedule`, `deliver`, `prompt`, `skills`, `model`, `provider`, `base_url`, `script`, `context_from`, `enabled_toolsets`, `workdir`, `enabled`, `state`.
+- exclude: `origin` details such as Telegram `chat_id`/`chat_name`, `next_run_at`, `last_run_at`, `last_status`, delivery errors, output paths, run counters, and any tokens/secrets.
+
+A useful repo pattern is an apply script, e.g. `scripts/apply_cron_jobs.py`, that imports `cron.jobs.get_job`, `cron.jobs.update_job`, and `cron.jobs.parse_schedule`, then updates existing jobs by `job_id`. Verify with:
+
+```bash
+python -m py_compile scripts/apply_cron_jobs.py
+python scripts/apply_cron_jobs.py --dry-run
+```
+
+The dry run should report `already up to date` after applying. Commit and push the tracked definition and apply script when the user's repo convention is to keep these changes in source control.
+
+## Manual test of a scheduled Hermes job
+
+To test a 7am cron job immediately without changing the long-term schedule:
+
+```bash
+hermes cron run <job_id>
+hermes cron tick
+hermes cron list
+```
+
+Then inspect the newest output and session files under:
+
+```text
+~/.hermes/cron/output/<job_id>/
+~/.hermes/sessions/session_cron_<job_id>_*.json
+```
+
+For a web-search fallback test, confirm `last_status: ok`, `last_delivery_error: null`, and check the session `tools` list. If `web_search` is still absent but `terminal`/`execute_code` are present and the output cites Google News RSS or other public feeds, the fallback is working even though the real web backend is still unconfigured.
+
+For the user's AI-cost news briefing, prefer Korean-language articles first. If Korean results are insufficient or a major global original is more important, supplement with English/global sources while stating that Korean articles were prioritized.
