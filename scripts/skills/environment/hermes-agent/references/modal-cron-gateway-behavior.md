@@ -111,6 +111,34 @@ for root, dirs, files in os.walk(base):
 PY
 ```
 
+## Manual test of a scheduled Hermes job
+
+To test a daily job immediately without changing its normal schedule:
+
+```bash
+hermes cron run <job_id>   # or use the cronjob tool action=run
+hermes cron tick
+hermes cron list
+```
+
+Then inspect the latest generated artifacts:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+job = '<job_id>'
+for base in [Path(f'~/.hermes/cron/output/{job}').expanduser(), Path('~/.hermes/sessions').expanduser()]:
+    print('BASE', base)
+    files = sorted(base.glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+    for p in files:
+        if base.name == 'sessions' and job not in p.name:
+            continue
+        print(p, p.stat().st_size)
+PY
+```
+
+For web-tool troubleshooting, read the newest session JSON and confirm which tools were actually present. If `web_search` is absent but `terminal`/`execute_code` are present, a news job can still succeed via public RSS fallback; the output should say that it used RSS rather than the dedicated web backend.
+
 ## Pitfalls
 
 Do not tell users that Modal automatically wakes for Hermes cron jobs unless the Modal deployment actually has a scheduled function/trigger configured. Distinguish clearly between:
