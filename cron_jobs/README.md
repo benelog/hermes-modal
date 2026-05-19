@@ -6,6 +6,7 @@ This directory stores declarative definitions for Hermes cron jobs whose prompt/
 
 - `ai-cost-news.json`: Daily AI cost news briefing for Telegram delivery.
   - Schedule: `0 22 * * *` in Hermes cron state, which corresponds to 07:00 KST the next day.
+  - Date scope: this 07:00 KST cron briefing searches and filters only yesterday/today news.
   - Modal wake-up is handled separately by `modal_app.py::cron_tick` using `modal.Cron("0 7 * * *", timezone="Asia/Seoul")`.
 
 ## Apply definitions to Hermes runtime state
