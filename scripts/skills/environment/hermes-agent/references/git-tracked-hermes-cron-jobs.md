@@ -30,6 +30,8 @@ Use the live repo status rather than assuming this path is always present; if mi
 
 ## Recommended pattern
 
+In this Modal environment, first check the Git-backed deployment clone at `/tmp/hermes-modal-clone`. It already contains `cron_jobs/`, `scripts/apply_cron_jobs.py`, and a remote for `benelog/hermes-modal`; prefer updating that clone over creating a new repository structure elsewhere.
+
 1. Export only declarative job fields into a repo directory such as `cron_jobs/`:
    - `job_id`
    - `name`
@@ -67,7 +69,7 @@ Use the live repo status rather than assuming this path is always present; if mi
 
 ## Verification commands
 
-From the repository root:
+From the repository root (usually `/tmp/hermes-modal-clone` in Modal):
 
 ```bash
 python -m py_compile scripts/apply_cron_jobs.py
@@ -77,16 +79,28 @@ import json
 from pathlib import Path
 p = Path('cron_jobs/ai-cost-news.json')
 if p.exists():
-    data = json.loads(p.read_text())
+    data = json.loads(p.read_text(encoding='utf-8'))
     forbidden = {'origin', 'chat_id', 'chat_name', 'thread_id', 'last_run_at', 'next_run_at', 'last_status', 'last_delivery_error'}
-    leaked = forbidden.intersection(data)
+    leaked = forbidden & set(data)
     assert not leaked, leaked
 print('cron definition validation ok')
 PY
 git diff --check
+```
+
+If the user asked to make the cron definition commit-ready or persistent, stage only the cron definition/README changes, commit, pull --rebase, and push to `origin main`.
+
+Example commit flow:
+
+```bash
+git add cron_jobs/ai-cost-news.json cron_jobs/README.md
+git commit -m "Track AI cost news cron definition"
+git pull --rebase origin main
+git push origin main
 git status --short
 ```
 
+## Push/auth pitfall
 If committing the exported definition, run:
 
 ```bash
