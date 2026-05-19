@@ -65,6 +65,7 @@ Use this skill whenever the user asks about configuring, setting up, installing,
    - When the user asks to change a Hermes cronjob, inspect the live cron list first (`cronjob list` or the jobs file) and update only the named/scheduled job that matches the request.
    - Do not turn a cron-specific news date rule into a global news-search behavior. If the user says a date criterion applies to “cronjob”, “7시”, or a specific briefing, scope the criterion to that cron prompt only.
    - For the user's 7 AM KST AI-cost news briefing, the intended date window is **yesterday and today** only; other ad hoc news searches should not inherit that date window unless the user explicitly asks.
+   - If the user asks whether cronjob changes are committed or reproducible, export/update the declarative definition under the Git-backed `cron_jobs/` structure and commit/push it when appropriate; see `references/git-tracked-hermes-cron-jobs.md`.
    - See `references/cron-news-date-scope.md` for the session-derived correction and prompt pattern.
 
 7. **Verification**

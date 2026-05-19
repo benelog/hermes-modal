@@ -12,6 +12,22 @@ This matters when:
 - a Modal/Hermes deployment should be reproducible from Git;
 - cron jobs need reviewable history without committing runtime-only fields.
 
+## Known repo in Modal environment
+
+In the current Modal deployment, the Git-backed Hermes app clone was found at:
+
+```bash
+/tmp/hermes-modal-clone
+```
+
+Its remote is `github.com/benelog/hermes-modal.git` and it already contains:
+
+- `cron_jobs/ai-cost-news.json`
+- `cron_jobs/README.md`
+- `scripts/apply_cron_jobs.py`
+
+Use the live repo status rather than assuming this path is always present; if missing, search common roots for `.git` and confirm the remote before writing.
+
 ## Recommended pattern
 
 1. Export only declarative job fields into a repo directory such as `cron_jobs/`:
@@ -63,13 +79,28 @@ p = Path('cron_jobs/ai-cost-news.json')
 if p.exists():
     data = json.loads(p.read_text())
     forbidden = {'origin', 'chat_id', 'chat_name', 'thread_id', 'last_run_at', 'next_run_at', 'last_status', 'last_delivery_error'}
-    leaked = forbidden & set(data)
+    leaked = forbidden.intersection(data)
     assert not leaked, leaked
 print('cron definition validation ok')
 PY
-git diff --cached --check
+git diff --check
+git status --short
 ```
 
+If committing the exported definition, run:
+
+```bash
+git add cron_jobs/ scripts/apply_cron_jobs.py
+git commit -m "Track AI cost news cron definition"
+git push origin main
+```
+
+Adjust the commit message and staged paths to match the actual changed cron definitions. Prefer `git diff --check` before committing; use `git diff --cached --check` after staging if desired.
+
+### Terminal heredoc pitfall
+
+Some Hermes terminal invocations can reject a shell command containing a literal `&` token even when it appears inside a Python heredoc expression such as `forbidden & set(data)`, because the safety checker treats it as backgrounding. Avoid that form in verification snippets; use `forbidden.intersection(data)` or run the validation with `execute_code` instead.
+```
 ## Push/auth pitfall
 
 In this Modal environment, GitHub credentials may exist only in `~/.hermes/.env` as `GITHUB_TOKEN`, not in the shell environment or git credential helper. If `git push` fails with:
