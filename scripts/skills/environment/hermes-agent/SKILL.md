@@ -61,7 +61,13 @@ Use this skill whenever the user asks about configuring, setting up, installing,
      ```
    - `hermes gateway restart` may hang in manual-process/Modal-style environments. If it times out, do not repeatedly retry; verify current status and report whether the running process will pick up the change or needs a safe external restart.
 
-6. **Verification**
+6. **Cron/news briefing preference changes**
+   - When the user asks to change a Hermes cronjob, inspect the live cron list first (`cronjob list` or the jobs file) and update only the named/scheduled job that matches the request.
+   - Do not turn a cron-specific news date rule into a global news-search behavior. If the user says a date criterion applies to “cronjob”, “7시”, or a specific briefing, scope the criterion to that cron prompt only.
+   - For the user's 7 AM KST AI-cost news briefing, the intended date window is **yesterday and today** only; other ad hoc news searches should not inherit that date window unless the user explicitly asks.
+   - See `references/cron-news-date-scope.md` for the session-derived correction and prompt pattern.
+
+7. **Verification**
    - Run `hermes config check` for schema/config validation when editing config.
    - Run `hermes status` to verify platform/service behavior.
    - Inspect relevant logs under `~/.hermes/logs/` if status output is insufficient.
