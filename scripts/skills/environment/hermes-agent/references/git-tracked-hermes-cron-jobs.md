@@ -30,9 +30,8 @@ Use the live repo status rather than assuming this path is always present; if mi
 
 ## Recommended pattern
 
-In this Modal environment, first check the Git-backed deployment clone at `/tmp/hermes-modal-clone`. It already contains `cron_jobs/`, `scripts/apply_cron_jobs.py`, and a remote for `benelog/hermes-modal`; prefer updating that clone over creating a new repository structure elsewhere.
-
-1. Export only declarative job fields into a repo directory such as `cron_jobs/`:
+1. Check the Git-backed deployment clone first (usually `/tmp/hermes-modal-clone` in Modal). Prefer updating that clone over creating a new repository structure elsewhere.
+2. Export only declarative job fields into `cron_jobs/*.json`:
    - `job_id`
    - `name`
    - `schedule` / schedule display
@@ -42,15 +41,13 @@ In this Modal environment, first check the Git-backed deployment clone at `/tmp/
    - model/provider/base_url if intentionally configured and non-secret
    - `enabled_toolsets`
    - `workdir`, `enabled`, `state`
-
-2. Do **not** commit runtime-only or sensitive fields:
+3. Do **not** commit runtime-only or sensitive fields:
    - `origin.chat_id`, `chat_name`, `thread_id`
    - `next_run_at`, `last_run_at`, `last_status`, delivery errors
    - output files under `~/.hermes/cron/output/`
    - session files under `~/.hermes/sessions/`
    - credentials or environment variable values
-
-3. Add an apply script such as `scripts/apply_cron_jobs.py` that imports Hermes runtime helpers directly:
+4. Keep/apply an apply script such as `scripts/apply_cron_jobs.py` that imports Hermes runtime helpers directly:
    ```python
    from cron.jobs import get_job, update_job, parse_schedule
    ```
@@ -61,8 +58,7 @@ In this Modal environment, first check the Git-backed deployment clone at `/tmp/
    - call `update_job(job_id, updates)`;
    - support `--dry-run`;
    - preserve runtime counters such as `repeat.completed` rather than resetting them from Git.
-
-4. Include a README in `cron_jobs/` describing the relationship between:
+5. Include/update `cron_jobs/README.md` describing the relationship between:
    - Git-tracked cron definitions;
    - runtime Hermes cron state;
    - Modal schedule/wakeup code such as `modal_app.py::cron_tick`.
@@ -81,11 +77,12 @@ p = Path('cron_jobs/ai-cost-news.json')
 if p.exists():
     data = json.loads(p.read_text(encoding='utf-8'))
     forbidden = {'origin', 'chat_id', 'chat_name', 'thread_id', 'last_run_at', 'next_run_at', 'last_status', 'last_delivery_error'}
-    leaked = forbidden & set(data)
+    leaked = forbidden.intersection(data)
     assert not leaked, leaked
 print('cron definition validation ok')
 PY
 git diff --check
+git status --short
 ```
 
 If the user asked to make the cron definition commit-ready or persistent, stage only the cron definition/README changes, commit, pull --rebase, and push to `origin main`.
@@ -98,31 +95,13 @@ git commit -m "Track AI cost news cron definition"
 git pull --rebase origin main
 git push origin main
 git status --short
+git log --oneline -3
 ```
 
-## Push/auth pitfall
-If committing the exported definition, run:
+## Pitfalls
 
-```bash
-git add cron_jobs/ scripts/apply_cron_jobs.py
-git commit -m "Track AI cost news cron definition"
-git push origin main
-```
-
-Adjust the commit message and staged paths to match the actual changed cron definitions. Prefer `git diff --check` before committing; use `git diff --cached --check` after staging if desired.
-
-### Terminal heredoc pitfall
-
-Some Hermes terminal invocations can reject a shell command containing a literal `&` token even when it appears inside a Python heredoc expression such as `forbidden & set(data)`, because the safety checker treats it as backgrounding. Avoid that form in verification snippets; use `forbidden.intersection(data)` or run the validation with `execute_code` instead.
-```
-## Push/auth pitfall
-
-In this Modal environment, GitHub credentials may exist only in `~/.hermes/.env` as `GITHUB_TOKEN`, not in the shell environment or git credential helper. If `git push` fails with:
-
-```text
-fatal: could not read Username for 'https://github.com': No such device or address
-```
-
-prepare a temporary `GIT_ASKPASS` script that reads `GITHUB_TOKEN` without printing it, push, then delete the temporary files. If push is rejected because remote advanced, run `git pull --rebase origin main` before pushing again.
-
-Never print token values; only report presence/absence or redact as `[REDACTED]`.
+- `cronjob update` changes live runtime state only. It does not automatically update the Git-tracked `cron_jobs/*.json` definition.
+- If the user asks “is it committed?”, check both the live runtime state and the Git clone status/log before answering.
+- Some Hermes terminal invocations can reject a shell command containing a literal `&` token even when it appears inside a Python heredoc expression such as `forbidden & set(data)`, because the safety checker treats it as backgrounding. Use `forbidden.intersection(data)` or run the validation with `execute_code` instead.
+- GitHub credentials may exist only in `~/.hermes/.env` as `GITHUB_TOKEN`, not in the shell environment or git credential helper. If `git push` fails with `fatal: could not read Username for 'https://github.com': No such device or address`, prepare a temporary `GIT_ASKPASS` script that reads `GITHUB_TOKEN` without printing it, push, then delete the temporary files. If push is rejected because remote advanced, run `git pull --rebase origin main` before pushing again.
+- Never print token values; only report presence/absence or redact as `[REDACTED]`.

@@ -117,5 +117,4 @@ Report concisely in Korean:
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
 - If a precise `patch` edit unexpectedly reports multiple matches, do not force a broad replacement. Re-read nearby lines and use a small deterministic script to insert/replace relative to a verified unique heading or marker, then inspect `git diff` carefully.
 - Some news sites (e.g. mobile/AMP Seoul Economic Daily URLs) may return 403 to direct `requests`/`curl` while Jina Reader succeeds; use Jina for source extraction and keep the original user-provided/canonical URL in the note.
-- Naver News article pages usually expose enough metadata/content without extra dependencies: fetch with a browser-like User-Agent, read `og:title`, `og:article:author`, `data-date-time`, and extract the body around `<article id="dic_area">` / `id="dic_area"`. Do not assume `bs4` is installed in the runtime; a small `re` + `html.unescape` fallback is often sufficient for verifying exact quoted text.
 - If the user explicitly says not to commit/push, leave changes in the working tree and report that state.
