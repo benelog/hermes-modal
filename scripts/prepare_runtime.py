@@ -71,16 +71,23 @@ def ensure_dirs() -> None:
 
 
 def maybe_write_auth_json() -> None:
+    """Bootstrap auth.json from the Modal Secret on a fresh volume.
+
+    Hermes rotates the OAuth refresh token at runtime, so the volume's copy
+    diverges from the secret almost immediately. Overwriting on every container
+    start would clobber the rotated tokens and invalidate them with the OAuth
+    server. Bootstrap once, then leave alone. Use `bootstrap_auth` in
+    modal_app.py to force a reseed after re-authenticating.
+    """
     encoded = os.environ.get("HERMES_AUTH_JSON_B64", "").strip()
     if not encoded:
         return
     target = HERMES_HOME / "auth.json"
-    decoded = base64.b64decode(encoded)
-    if target.exists() and target.read_bytes() == decoded:
+    if target.exists():
         return
-    target.write_bytes(decoded)
+    target.write_bytes(base64.b64decode(encoded))
     target.chmod(0o600)
-    print(f"wrote {target}")
+    print(f"wrote {target} (bootstrap)")
 
 
 def write_soul_file() -> None:

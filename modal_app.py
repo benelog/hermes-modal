@@ -209,6 +209,36 @@ def commit_skills():
     image=image,
     secrets=[secret, github_secret],
     volumes=volume_mounts,
+    timeout=60,
+    env=common_env,
+)
+def bootstrap_auth():
+    """Force-rewrite the volume's auth.json from HERMES_AUTH_JSON_B64.
+
+    prepare_runtime.py only bootstraps auth.json when the volume copy is
+    missing, so rotated tokens survive restarts. After re-authenticating and
+    refreshing the Modal Secret, call this to reseed the volume with the new
+    credentials.
+    """
+    import base64
+    import os
+    from pathlib import Path
+
+    encoded = os.environ.get("HERMES_AUTH_JSON_B64", "").strip()
+    if not encoded:
+        raise RuntimeError("HERMES_AUTH_JSON_B64 missing from Modal Secret")
+    target = Path(HERMES_HOME) / "auth.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(base64.b64decode(encoded))
+    target.chmod(0o600)
+    hermes_volume.commit()
+    return f"wrote {target}"
+
+
+@app.function(
+    image=image,
+    secrets=[secret, github_secret],
+    volumes=volume_mounts,
     timeout=60 * 10,
     env=common_env,
 )
