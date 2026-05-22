@@ -41,26 +41,6 @@ hermes cron status
 hermes cron list
 ```
 
-When the user asks why a scheduled job "didn't run" shortly after its scheduled time, first check whether it is still in progress before concluding failure. A Hermes cron job may start on time but take minutes to search/summarize before delivery. Inspect the freshest session/output files, then re-check `hermes cron list` after a short delay:
-
-```bash
-python - <<'PY'
-from pathlib import Path
-from datetime import datetime, timezone
-job = '26a77a1a8a50'  # replace with the job id from hermes cron list
-for base in [Path('~/.hermes/sessions').expanduser(), Path(f'~/.hermes/cron/output/{job}').expanduser()]:
-    print('BASE', base)
-    if not base.exists():
-        continue
-    files = [p for p in base.glob('*') if p.is_file() and (job in p.name or base.name == job)]
-    for p in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)[:5]:
-        print(p, p.stat().st_size, datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat())
-PY
-hermes cron list
-```
-
-If a `session_cron_<job>_<timestamp>.json` exists but no output file or `last_run_at` update yet, the job may be actively running. Re-read the session JSON for message count/final assistant content, and only report failure if `last_status`, logs, or session content show an error.
-
 Check the Modal app source in the live working directory (in this environment it has been `/root/modal_app.py`):
 
 ```bash
