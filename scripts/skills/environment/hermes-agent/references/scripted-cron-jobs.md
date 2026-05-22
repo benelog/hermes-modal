@@ -40,7 +40,8 @@ script="/root/.hermes/scripts/english_random_expressions.py"
 
 For a daily random briefing from a static site whose source is in GitHub:
 
-- Fetch the repo zip or clone/pull the repo in the pre-run script.
+- Fetch the repo by maintaining a local shallow clone cache and running `git fetch --prune`, `git checkout <branch>`, and `git pull --ff-only origin <branch>` on every execution when the user expects the latest repo contents. A GitHub zip download can be fresh, but it is not equivalent to an explicit `git pull` workflow.
+- In Modal-backed Hermes deployments, commit the script under `scripts/cron/` in `benelog/hermes-modal` and have `scripts/prepare_runtime.py` sync that directory into `~/.hermes/scripts/`; otherwise a runtime-created script may work only in the current volume and not be reproducible from Git.
 - Parse Markdown files under the published docs directory.
 - Exclude index/lyrics or other non-expression pages if needed.
 - Convert source files to deployed URLs, e.g. `docs/expressions/body.md` → `https://english.benelog.net/expressions/body.html`.
