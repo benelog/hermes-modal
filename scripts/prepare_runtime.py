@@ -28,6 +28,7 @@ DEFAULT_REPO_MANIFEST = Path(__file__).with_name("qmd_repos.yml")
 SOUL_SOURCE = Path(__file__).with_name("SOUL.md")
 SKILLS_SOURCE = Path(__file__).with_name("skills")
 HOOKS_SOURCE = Path(__file__).with_name("hooks")
+CRON_SCRIPTS_SOURCE = Path(__file__).with_name("cron")
 IMAGE_MANIFEST_NAME = ".image-manifest.txt"
 
 
@@ -153,6 +154,10 @@ def sync_skills_dir() -> None:
 
 def sync_hooks_dir() -> None:
     sync_image_dir(HOOKS_SOURCE, HERMES_HOME / "hooks")
+
+
+def sync_cron_scripts_dir() -> None:
+    sync_image_dir(CRON_SCRIPTS_SOURCE, HERMES_HOME / "scripts")
 
 
 def write_hermes_config() -> None:
@@ -335,6 +340,7 @@ def main() -> None:
     write_soul_file()
     sync_skills_dir()
     sync_hooks_dir()
+    sync_cron_scripts_dir()
     write_hermes_config()
     write_env_file()
 

@@ -8,6 +8,19 @@ This directory stores declarative definitions for Hermes cron jobs whose prompt/
   - Schedule: `0 22 * * *` in Hermes cron state, which corresponds to 07:00 KST the next day.
   - Date scope: this 07:00 KST cron briefing searches and filters only yesterday/today news.
   - Modal wake-up is handled separately by `modal_app.py::cron_tick` using `modal.Cron("0 7 * * *", timezone="Asia/Seoul")`.
+- `english-random-expressions.json`: Daily random English expression briefing from `benelog/english` docs.
+  - Schedule: `0 22 * * *` in Hermes cron state, which corresponds to 07:00 KST the next day.
+  - Script: `english_random_expressions.py`, shipped from `scripts/cron/` into `~/.hermes/scripts/` by `scripts/prepare_runtime.py`.
+  - The script keeps a local shallow clone of `https://github.com/benelog/english.git` and runs `git pull --ff-only origin main` on every execution before sampling expressions.
+
+## Adding new cron jobs
+
+When a new Hermes cron job is created or materially changed in runtime, mirror it here in the same commit:
+
+1. Add or update a sanitized `cron_jobs/*.json` definition with declarative fields only.
+2. If the job uses a pre-run script, commit it under `scripts/cron/`; `prepare_runtime.py` syncs that directory into `~/.hermes/scripts/` on Modal startup/cron tick.
+3. Do not commit runtime-only fields: Telegram chat IDs, `origin`, `next_run_at`, `last_run_at`, statuses, delivery errors, sessions, or output files.
+4. Run the dry-run/apply checks below before committing.
 
 ## Apply definitions to Hermes runtime state
 
