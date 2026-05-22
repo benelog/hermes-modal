@@ -8,11 +8,13 @@ Use a pre-run script under `~/.hermes/scripts/` when the cron job needs determin
 
 Example workflow:
 
-1. Write a script in `~/.hermes/scripts/`, e.g. `english_random_expressions.py`.
-2. Make the script print JSON to stdout. Include source URLs and enough fields for the prompt to format without guessing.
-3. Create the cron job with `script` set to the filename only, not an absolute path.
-4. Manually test with `hermes cron run <job_id>` or the cronjob tool, then `hermes cron tick`.
-5. Verify with `hermes cron list` and inspect `~/.hermes/cron/output/<job_id>/`.
+1. Write a script in `~/.hermes/scripts/`, e.g. `english_random_expressions.py`, for the live runtime test.
+2. If the cron job must be reproducible in the user's Modal deployment, also commit the canonical copy under `benelog/hermes-modal/scripts/cron/` and ensure `scripts/prepare_runtime.py` syncs `scripts/cron/` into `~/.hermes/scripts/` on startup/cron tick.
+3. Make the script print JSON to stdout. Include source URLs and enough fields for the prompt to format without guessing.
+4. For repo-backed sources, prefer a local shallow clone with `git fetch --prune`, `git checkout <branch>`, and `git pull --ff-only origin <branch>` on every run when the user expects fresh repository contents. Include a JSON flag or README note such as `git_pull_each_run: true` so the freshness behavior is auditable.
+5. Create the cron job with `script` set to the filename only, not an absolute path.
+6. Manually test with `hermes cron run <job_id>` or the cronjob tool, then `hermes cron tick`.
+7. Verify with `hermes cron list` and inspect `~/.hermes/cron/output/<job_id>/`.
 
 ## Important quirk
 

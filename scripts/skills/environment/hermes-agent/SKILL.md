@@ -66,11 +66,6 @@ Use this skill whenever the user asks about configuring, setting up, installing,
    - Run `hermes status` to verify platform/service behavior.
    - Inspect relevant logs under `~/.hermes/logs/` if status output is insufficient.
 
-7. **Scripted cron jobs**
-   - For cron jobs that need fresh computed context, random sampling, or repository reads before the model formats a message, place a pre-run script in `~/.hermes/scripts/` and configure the cron job with the script filename only.
-   - The cronjob tool rejects absolute or home-relative script paths; use `script="name.py"`, not `/root/.hermes/scripts/name.py`.
-   - See `references/scripted-cron-jobs.md` for the tested pattern and verification steps.
-
 ## Pitfalls
 
 - Do not answer Hermes Agent setup/config questions from memory; inspect the live CLI and files.
