@@ -1,10 +1,10 @@
 {
   "job_id": "157db4a4b6c3",
-  "name": "매일 영어 표현 5개 랜덤 브리핑",
+  "name": "매일 영어 표현 5개 오전/저녁 브리핑",
   "schedule": "0 10,22 * * *",
   "repeat": "forever",
   "deliver": "origin",
-  "prompt": "매일 오전 7시와 저녁 7시(KST)에 사용자의 영어 학습 사이트 자료에서 무작위로 고른 영어 표현 5개를 한국어로 간결하게 알려준다.\n\n입력 컨텍스트에는 사전 실행 스크립트가 생성한 JSON이 포함된다. JSON의 `items` 배열에는 다음 필드가 있다: expression, notes, page_title, section, source_file, url.\n\n출력 형식:\n- 제목: `오늘의 영어 표현 5개`\n- 첫 줄에 기준: `출처: https://english.benelog.net/ / 소스: https://github.com/benelog/english/tree/main/docs`\n- 각 항목은 번호 목록으로 작성한다.\n- 각 항목마다:\n  - 영어 표현을 굵게 표시\n  - notes에서 예문/설명을 1~3개 bullet로 정리\n  - `문맥:` page_title 또는 section\n  - `링크:` url\n- 한국어 설명은 짧고 실용적으로 쓴다.\n- JSON에 없는 사실은 추정하지 않는다.\n- cron 작업 안에서 새 cronjob을 만들거나 기존 cronjob을 수정하지 않는다.",
+  "prompt": "매일 오전 7시와 저녁 7시(KST)에 사용자의 영어 학습 사이트 자료에서 무작위로 고른 영어 표현 5개를 한국어로 간결하게 알려준다.\n\n입력 컨텍스트에는 사전 실행 스크립트가 생성한 JSON이 포함된다. JSON의 items 배열을 사용해 다음 형식으로 한국어 브리핑을 작성한다.\n\n## 오늘의 영어 표현 5개\n\n각 항목마다:\n- 영어 표현\n- 한국어 의미/해설\n- 자연스러운 예문 1개\n- 출처 링크\n\n조건:\n- 반드시 스크립트가 제공한 JSON의 표현만 사용한다.\n- 너무 길지 않게 Telegram에서 읽기 좋게 작성한다.\n- 마지막에 자료 출처(english.benelog.net / benelog/english)를 짧게 언급한다.",
   "skills": [],
   "model": null,
   "provider": null,
