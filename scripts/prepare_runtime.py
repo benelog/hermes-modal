@@ -274,6 +274,12 @@ def write_hermes_config() -> None:
             "tirith_enabled": False,
             "redact_secrets": True,
         },
+        "quick_commands": {
+            "english": {
+                "type": "exec",
+                "command": "(HERMES_ACCEPT_HOOKS=1 /usr/local/bin/hermes cron run 157db4a4b6c3 && HERMES_ACCEPT_HOOKS=1 /usr/local/bin/hermes cron tick) >/tmp/hermes-english-cron-trigger.log 2>&1 & echo '영어학습 cronjob 실행을 요청했습니다. 잠시 후 결과가 이 채팅으로 도착합니다.'",
+            },
+        },
         "_config_version": 22,
     }
 
