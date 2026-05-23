@@ -54,19 +54,14 @@ Use this skill whenever the user asks about configuring, setting up, installing,
      It should show `Telegram ✓ configured (home: <chat_id>)`.
    - See `references/telegram-sethome-home-channel.md` for the session-derived debugging path and pitfalls.
 
-5. **For Telegram skill commands not appearing in the `/` menu**
-   - Distinguish command dispatch from menu registration: `get_skill_commands()`/`resolve_skill_command_key()` can show a command is runnable while `telegram_menu_commands()` still omits it from Telegram `setMyCommands`.
-   - In Modal, diagnose raw-vs-resolved skill path mismatches (`/root/.hermes/skills/...` vs `/__modal/volumes/.../skills`) before recreating skills or relying on `/reload-skills`.
-   - See `references/telegram-skill-command-menu-paths.md` for a reproduction script and fix direction.
-
-6. **Gateway service changes**
+5. **Gateway service changes**
    - Check status before and after:
      ```bash
      hermes status | sed -n '/◆ Gateway Service/,+8p'
      ```
    - `hermes gateway restart` may hang in manual-process/Modal-style environments. If it times out, do not repeatedly retry; verify current status and report whether the running process will pick up the change or needs a safe external restart.
 
-7. **Verification**
+6. **Verification**
    - Run `hermes config check` for schema/config validation when editing config.
    - Run `hermes status` to verify platform/service behavior.
    - Inspect relevant logs under `~/.hermes/logs/` if status output is insufficient.
