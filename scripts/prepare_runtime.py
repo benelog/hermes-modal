@@ -160,6 +160,59 @@ def sync_cron_scripts_dir() -> None:
     sync_image_dir(CRON_SCRIPTS_SOURCE, HERMES_HOME / "scripts")
 
 
+def patch_hermes_skill_command_path_filter() -> None:
+    """Patch Hermes' Telegram skill menu filter for Modal volume paths.
+
+    Hermes Agent v0.12.0 compares raw skill paths from get_skill_commands()
+    against SKILLS_DIR.resolve(). In Modal, /root/.hermes/skills resolves to a
+    /__modal/volumes/... path, while get_skill_commands() returns the raw
+    /root/.hermes/skills/... path. The raw string prefix comparison therefore
+    drops every skill command from Telegram's menu, including /english.
+    """
+    try:
+        import hermes_cli.commands as commands
+    except Exception as exc:
+        print(f"skipped Hermes skill command path patch: import failed: {exc}")
+        return
+
+    target = Path(commands.__file__)
+    try:
+        text = target.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(f"skipped Hermes skill command path patch: read failed: {exc}")
+        return
+
+    marker = "# Modal path-resolution patch for skill command menu"
+    if marker in text:
+        return
+
+    old = '''            skill_path = info.get("skill_md_path", "")
+            if not skill_path.startswith(_skills_dir):
+                continue
+            if skill_path.startswith(_hub_dir):
+                continue
+'''
+    new = '''            skill_path_raw = info.get("skill_md_path", "")
+            # Modal path-resolution patch for skill command menu: compare
+            # resolved paths because /root/.hermes/skills may be backed by a
+            # /__modal/volumes/... mount while skill_commands stores raw paths.
+            try:
+                skill_path = str(__import__("pathlib").Path(skill_path_raw).resolve())
+            except Exception:
+                skill_path = str(skill_path_raw)
+            if not skill_path.startswith(_skills_dir):
+                continue
+            if skill_path.startswith(_hub_dir):
+                continue
+'''
+    if old not in text:
+        print("skipped Hermes skill command path patch: target block not found")
+        return
+
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    print(f"patched {target} for Modal skill command menu paths")
+
+
 def write_hermes_config() -> None:
     config_path = HERMES_HOME / "config.yaml"
     if config_path.exists() and os.environ.get("HERMES_MODAL_OVERWRITE_CONFIG", "").lower() not in {"1", "true", "yes"}:
@@ -347,6 +400,7 @@ def main() -> None:
     sync_skills_dir()
     sync_hooks_dir()
     sync_cron_scripts_dir()
+    patch_hermes_skill_command_path_filter()
     write_hermes_config()
     write_env_file()
 
