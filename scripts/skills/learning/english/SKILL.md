@@ -36,4 +36,3 @@ Use this skill when the user types `/english` or asks for "오늘의 영어 표�
 - Do not ask for clarification for a normal `/english` invocation.
 - Use the script output rather than inventing expressions.
 - Keep the response compact enough for a daily learning message.
-- Do not include the phrase `창모정신을 살려서 최선을 다해 대답하겠습니다!` unless the actual requester is 장창모.
