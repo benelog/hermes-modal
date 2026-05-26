@@ -15,5 +15,5 @@
   "workdir": null,
   "enabled": true,
   "state": "scheduled",
-  "notes": "Tracked source for the combined 7 AM and 7 PM KST English expressions Hermes cron job. Runtime-only fields such as origin chat_id, next_run_at, last_run_at, last_status, delivery errors, output paths, and run counters are intentionally not committed. The pre-run script is shipped from scripts/cron/ into ~/.hermes/scripts/ by prepare_runtime.py and git-pulls benelog/english on each run."
+  "notes": "Tracked source for the combined 7 AM and 7 PM KST English expressions Hermes cron job. Runtime-only fields such as origin chat_id, next_run_at, last_run_at, last_status, delivery errors, output paths, and run counters are intentionally not committed. The pre-run script is shipped from scripts/cron/ into ~/.hermes/scripts/ by prepare_runtime.py and git-pulls benelog/english on each run. It samples from all extracted expression/learning items excluding index, lyrics, and recommendation pages, rather than limiting the pool to items with nested notes."
 }

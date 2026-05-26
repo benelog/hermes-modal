@@ -26,8 +26,8 @@ Use this skill when the user types `/english` or asks for "오늘의 영어 표�
    `## 오늘의 영어 표현 5개`
 4. For each expression, include:
    - the English expression
-   - a short Korean meaning/explanation inferred from the notes
-   - 1 useful example sentence when possible
+   - a short Korean meaning/explanation inferred from `notes` when present, or from the expression/page context when `notes` is empty
+   - 1 useful example sentence when possible; use a provided note as the example when it is already an example
    - source link from `url`
 5. Mention the source site/repo briefly at the end.
 

@@ -107,11 +107,14 @@ def main() -> int:
     all_items = []
     for path in sorted(DOCS_DIR.rglob("*.md")):
         rel = path.relative_to(DOCS_DIR).as_posix()
-        if rel == "index.md" or rel.startswith("lyrics/"):
+        if rel == "index.md" or rel == "recommendation.md" or rel.startswith("lyrics/"):
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         all_items.extend(extract_items(path, text))
-    pool = [x for x in all_items if x.get("notes")] or all_items
+    # Use the full extracted set, not only items that already have nested notes.
+    # The previous notes-only pool was much smaller (38 of 152 eligible items
+    # as of 2026-05) and caused noticeably frequent repeats across daily runs.
+    pool = all_items
     if len(pool) < 5:
         raise SystemExit(f"Only {len(pool)} expressions found")
     chosen = random.SystemRandom().sample(pool, 5)
@@ -123,6 +126,9 @@ def main() -> int:
         "repo_cache": str(REPO_DIR),
         "git_pull_each_run": True,
         "count_available": len(all_items),
+        "count_with_notes": sum(1 for x in all_items if x.get("notes")),
+        "sample_pool_size": len(pool),
+        "sample_pool_strategy": "all_extracted_items",
         "items": chosen,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
