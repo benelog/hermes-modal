@@ -26,8 +26,8 @@ Use this skill when the user types `/english` or asks for "오늘의 영어 표�
    `## 오늘의 영어 표현 5개`
 4. For each expression, include:
    - the English expression
-   - a short Korean meaning/explanation inferred from `notes` when present, or from the expression/page context when `notes` is empty
-   - 1 useful example sentence when possible; use a provided note as the example when it is already an example
+   - a short Korean meaning/explanation inferred from the notes
+   - 1 useful example sentence when possible
    - source link from `url`
 5. Mention the source site/repo briefly at the end.
 
@@ -36,14 +36,3 @@ Use this skill when the user types `/english` or asks for "오늘의 영어 표�
 - Do not ask for clarification for a normal `/english` invocation.
 - Use the script output rather than inventing expressions.
 - Keep the response compact enough for a daily learning message.
-
-## Troubleshooting repetition in the cron job
-
-If the user reports that daily English expressions repeat too often, inspect the pre-run script and cron outputs rather than assuming older behavior. Since 2026-05-26, the script samples from all eligible extracted items rather than only items with `notes`, and excludes `index.md`, `recommendation.md`, and `lyrics/`:
-
-```python
-pool = all_items
-chosen = random.SystemRandom().sample(pool, 5)
-```
-
-This prevents duplicates only within one briefing and keeps no cross-run history. Use `references/repetition-diagnostics.md` for the analysis command, probability check, and likely further fixes such as persisted history or shuffled-cycle selection.
