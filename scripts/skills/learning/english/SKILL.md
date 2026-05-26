@@ -39,11 +39,11 @@ Use this skill when the user types `/english` or asks for "오늘의 영어 표�
 
 ## Troubleshooting repetition in the cron job
 
-If the user reports that daily English expressions repeat too often, inspect the pre-run script and cron outputs rather than assuming the `count_available` value is the real sampling pool. In the current implementation, the script may extract many markdown bullets but sample only from items with `notes`:
+If the user reports that daily English expressions repeat too often, inspect the pre-run script and cron outputs rather than assuming older behavior. Since 2026-05-26, the script samples from all eligible extracted items rather than only items with `notes`, and excludes `index.md`, `recommendation.md`, and `lyrics/`:
 
 ```python
-pool = [x for x in all_items if x.get("notes")] or all_items
+pool = all_items
 chosen = random.SystemRandom().sample(pool, 5)
 ```
 
-This prevents duplicates only within one briefing and keeps no cross-run history. Use `references/repetition-diagnostics.md` for the analysis command, probability check, and likely fixes such as persisted history or shuffled-cycle selection.
+This prevents duplicates only within one briefing and keeps no cross-run history. Use `references/repetition-diagnostics.md` for the analysis command, probability check, and likely further fixes such as persisted history or shuffled-cycle selection.
