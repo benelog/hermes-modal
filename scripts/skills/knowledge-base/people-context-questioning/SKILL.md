@@ -26,6 +26,7 @@ If the user names “장창모”, a generic page like `창의성.md` is weaker 
 
 1. **Identify the target person and intended delivery**
    - Extract the person's name and whether the user wants a draft or wants you to send it.
+   - If the user gives a bot handle or says a named bot represents the person (e.g. `@Changmo_J_bot` is 장창모's chatbot), address/mention that handle directly in the message rather than speaking as if the human is personally present.
    - If sending, list/check messaging targets before sending unless the target is already obvious from the active chat context.
 
 2. **Search person-specific records first**
