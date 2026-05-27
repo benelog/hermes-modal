@@ -213,6 +213,87 @@ def patch_hermes_skill_command_path_filter() -> None:
     print(f"patched {target} for Modal skill command menu paths")
 
 
+def patch_openai_parse_response_none_output() -> None:
+    """Coerce a missing Response.output to [] in openai.lib._parsing._responses.
+
+    The ChatGPT Codex backend (chatgpt.com/backend-api/codex) can emit a
+    `response.completed` SSE event whose payload has `output=null`. The OpenAI
+    SDK's parse_response() does `for output in response.output:` with no None
+    guard, so the whole stream raises TypeError mid-event. hermes-agent already
+    has a safety net at run_agent.py:5197 that re-synthesizes the response from
+    accumulated text deltas when output is an empty list — but it never runs
+    because the SDK crashes first. This patch flips None to [] so the
+    downstream backfill path can fire.
+    """
+    try:
+        from openai.lib._parsing import _responses as openai_parse_responses
+    except Exception as exc:
+        print(f"skipped openai parse_response None-output patch: import failed: {exc}")
+        return
+
+    target = Path(openai_parse_responses.__file__)
+    try:
+        text = target.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(f"skipped openai parse_response None-output patch: read failed: {exc}")
+        return
+
+    marker = "# Modal patch: tolerate None Response.output"
+    if marker in text:
+        return
+
+    old = "    for output in response.output:"
+    new = (
+        "    # Modal patch: tolerate None Response.output from chatgpt.com codex backend\n"
+        "    for output in (response.output or []):"
+    )
+    if old not in text:
+        print("skipped openai parse_response None-output patch: target line not found")
+        return
+
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    print(f"patched {target} to tolerate None Response.output")
+
+
+def patch_hermes_non_retryable_traceback() -> None:
+    """Add exc_info=True to the non-retryable client error log.
+
+    hermes-agent logs `Non-retryable client error: ...` at ERROR level with no
+    traceback (only the DEBUG-level outer-loop handler captures exc_info).
+    Without the traceback we can't locate the actual TypeError/ValueError that
+    triggered the abort path. This patch flips exc_info on so Modal logs show
+    the full stack trace on the next failure.
+    """
+    try:
+        import run_agent
+    except Exception as exc:
+        print(f"skipped Hermes non-retryable traceback patch: import failed: {exc}")
+        return
+
+    target = Path(run_agent.__file__)
+    try:
+        text = target.read_text(encoding="utf-8")
+    except Exception as exc:
+        print(f"skipped Hermes non-retryable traceback patch: read failed: {exc}")
+        return
+
+    marker = "# Modal patch: surface traceback for non-retryable client errors"
+    if marker in text:
+        return
+
+    old = '                        logging.error(f"{self.log_prefix}Non-retryable client error: {api_error}")'
+    new = (
+        '                        # Modal patch: surface traceback for non-retryable client errors\n'
+        '                        logging.error(f"{self.log_prefix}Non-retryable client error: {api_error}", exc_info=True)'
+    )
+    if old not in text:
+        print("skipped Hermes non-retryable traceback patch: target line not found")
+        return
+
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    print(f"patched {target} to log traceback on non-retryable client errors")
+
+
 def write_hermes_config() -> None:
     config_path = HERMES_HOME / "config.yaml"
     if config_path.exists() and os.environ.get("HERMES_MODAL_OVERWRITE_CONFIG", "").lower() not in {"1", "true", "yes"}:
@@ -407,6 +488,8 @@ def main() -> None:
     sync_hooks_dir()
     sync_cron_scripts_dir()
     patch_hermes_skill_command_path_filter()
+    patch_hermes_non_retryable_traceback()
+    patch_openai_parse_response_none_output()
     write_hermes_config()
     write_env_file()
 
