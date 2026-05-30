@@ -113,7 +113,6 @@ Report concisely in Korean:
 - For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
 - For wiki `ai-trend.md` link placement conventions, including the user's preferred messenger export format and date sorting rules, see `references/wiki-ai-trend-placement.md`.
 - For wiki `ai-trend.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content/ai-trend.md>`.
-- For AI token cost / tokenmaxxing / AI FinOps news in wiki, prefer `content/ai-token-cost.md` and follow `references/wiki-ai-token-cost-placement.md`.
 - YouTube transcripts often fail from cloud IPs with bot checks; use oEmbed and Jina Reader fallback.
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
 - If a precise `patch` edit unexpectedly reports multiple matches, do not force a broad replacement. Re-read nearby lines and use a small deterministic script to insert/replace relative to a verified unique heading or marker, then inspect `git diff` carefully.
