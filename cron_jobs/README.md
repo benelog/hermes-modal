@@ -12,6 +12,10 @@ This directory stores declarative definitions for Hermes cron jobs whose prompt/
   - Schedule: `0 22 * * *` in Hermes cron state, which corresponds to 07:00 KST the next day.
   - Script: `english_random_expressions.py`, shipped from `scripts/cron/` into `~/.hermes/scripts/` by `scripts/prepare_runtime.py`.
   - The script keeps a local shallow clone of `https://github.com/benelog/english.git` and runs `git pull --ff-only origin main` on every execution before sampling expressions.
+- `weekly-git-activity.json`: Weekly learning/activity briefing generated from recent Git commit logs across `/root/workspace` repositories.
+  - Schedule: `0 22 * * 5` in Hermes cron state, which corresponds to Saturday 07:00 KST.
+  - Script: `weekly_commit_activity.py`, shipped from `scripts/cron/` into `~/.hermes/scripts/` by `scripts/prepare_runtime.py`.
+  - The script discovers local Git repositories, fetches remote refs, and summarizes commits from the last week with public benelog URLs when derivable.
 
 ## Adding new cron jobs
 
