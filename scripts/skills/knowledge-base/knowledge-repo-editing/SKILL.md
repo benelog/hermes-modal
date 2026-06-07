@@ -66,7 +66,6 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Search candidate repos with `search_files` using source title keywords, topic keywords, and related Korean/English terms.
    - Prefer an existing specific page/section over creating a new page.
    - If the user names a repo but not a page, search only that repo first; broaden only if no reasonable page exists.
-   - If no reasonable devnote page exists for a development tool/library, create a focused `content/<topic-slug>.md` page with a concise section such as `## 도구` and a `## Related` section linking relevant existing notes (e.g. `[[python]]`).
    - Read the candidate file with line numbers and verify exact heading plus nearby context before editing.
    - Do not assume a section name; verify the actual heading and style.
 
@@ -110,7 +109,7 @@ Report concisely in Korean:
 
 - Do not commit unrelated pre-existing changes.
 - Do not cite raw local markdown paths as if they are public pages. If quoting/citing QMD/benelog files to the user, include the deployed URL when applicable.
-- For devnote deployed URLs, `content/<slug>.md` maps to `https://devnote.benelog.net/<slug>`; verify with a quick `curl -I`/HTTP status check when first using a slug in a session. Newly created pages may return 404 until the site build/deploy catches up; in that case report it as an expected URL plus current 404, not as a verified live page.
+- For devnote deployed URLs, `content/<slug>.md` maps to `https://devnote.benelog.net/<slug>`; verify with a quick `curl -I`/HTTP status check when first using a slug in a session.
 - For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
 - For wiki `ai-trend.md` link placement conventions, including the user's preferred messenger export format and date sorting rules, see `references/wiki-ai-trend-placement.md`.
 - For wiki `ai-trend.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content/ai-trend.md>`.
