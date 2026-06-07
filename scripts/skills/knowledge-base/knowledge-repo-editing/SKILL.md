@@ -65,7 +65,9 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
 4. **Find the best target page and section**
    - Search candidate repos with `search_files` using source title keywords, topic keywords, and related Korean/English terms.
    - Prefer an existing specific page/section over creating a new page.
+   - For development tools/libraries/services, actively search for broader existing topic pages before creating a page named after the tool (e.g. `ngrok` belongs better in `cloud-deployment`/`network` if those pages exist; `Scrapling` may belong in `web-scraping` if that topic page exists).
    - If the user names a repo but not a page, search only that repo first; broaden only if no reasonable page exists.
+   - Create a new page only after verifying there is no reasonable existing page/section; if the user later says “기존 페이지에 추가해” or equivalent, migrate the note into the best existing page and delete the unnecessary new page in a follow-up commit.
    - Read the candidate file with line numbers and verify exact heading plus nearby context before editing.
    - Do not assume a section name; verify the actual heading and style.
 
