@@ -35,5 +35,3 @@ Session examples:
 - DongA article on tokenmaxxing and token-cost dashboards: added under `## Token 사용 경향`.
 - DigitalToday article on Claude Code cost estimate doubling from $6 to $13 per active user day: added under `## Token 사용 경향`.
 - Amazon/MeshClaw article about employees inflating internal AI token usage due to perceived performance pressure: added under `content/ai-token-cost.md` → `## Token 사용 경향`.
-- AI타임스 article on GitHub Copilot moving from premium-request counts to AI Credits/token-based usage billing, with user cost-shock examples such as $29→$750/month: added under `content/ai-token-cost.md` → `## 2026년 6월`.
-- AI타임스 article on Sam Altman saying token costs suddenly became a major issue, with OpenAI employee token usage, Uber limits, and criticism that OpenAI shares responsibility: added under `content/ai-token-cost.md` → `## 2026년 6월`.
