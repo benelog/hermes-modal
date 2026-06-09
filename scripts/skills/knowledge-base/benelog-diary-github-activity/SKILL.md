@@ -7,7 +7,7 @@ description: Create a benelog diary post summarizing a day's GitHub and Hermes/Q
 
 ## When to use
 
-Use when the user asks to summarize today's/recent GitHub activity, infer what they studied from recent commit logs, save such a draft into the `benelog/diary` repo, or revise a diary entry based on GitHub/Hermes/QMD work done during a period.
+Use when the user asks to summarize today's GitHub activity as a diary draft, save such a draft into the `benelog/diary` repo, or revise a diary entry based on GitHub/Hermes/QMD work done during the day.
 
 ## Key preferences
 
@@ -20,16 +20,9 @@ Use when the user asks to summarize today's/recent GitHub activity, infer what t
 
 ## Procedure
 
-1. **Gather GitHub activity for the requested period**
-   - Get current date/time with `date` or Python, and compute the requested boundary in KST when the user says “today”, “this week”, “최근 1주일”, etc.
-   - Do not limit discovery to `/root/workspace/benelog/*` local branch tips. First enumerate git repos under `/root/workspace` (at least `/root/workspace/benelog/*`, `/root/workspace/hermes-modal`, `/root/workspace/presentations`) and fetch remote refs without changing worktrees:
-     ```bash
-     find /root/workspace -name .git -type d -prune
-     git -C <repo> fetch --all --prune
-     git -C <repo> log --all --since='1 week ago' --date=short --pretty=format:'%h%x09%ad%x09%an%x09%d%x09%s' --name-only
-     ```
-   - Use `--all` when summarizing recent commit logs; some repos may have recent commits only on remote-tracking refs while the local checked-out branch is stale.
-   - Query GitHub public events and/or commits for the relevant account and repos when local clones are absent or incomplete, e.g.:
+1. **Gather today's GitHub activity**
+   - Get current date/time with `date` or Python, and compute the KST day boundary.
+   - Query GitHub public events and/or commits for the relevant account and repos, e.g.:
      ```python
      https://api.github.com/users/benelog/events/public?per_page=100
      https://api.github.com/repos/<owner>/<repo>/commits?since=<UTC>&until=<UTC>&per_page=100
@@ -84,7 +77,6 @@ Use when the user asks to summarize today's/recent GitHub activity, infer what t
 
 ## Pitfalls
 
-- Do not summarize only the currently checked-out branches. In this environment, recent `blog`, `bookshelf-it`, and `diary` commits may appear on `origin/master` while local branch logs look empty; fetch and use `git log --all` for period summaries.
 - Do not assume GitHub public events alone contain all work. Agent-created PRs, Modal/Hermes discoveries, and QMD skill updates may need `session_search`.
 - Do not misattribute agent actions to the user. The user explicitly corrected that a `presentations` branch/PR was created by Hermes Agent.
 - `benelog/hermes-modal` may not be visible through public GitHub APIs; use session history and local Modal/Hermes files for context.
