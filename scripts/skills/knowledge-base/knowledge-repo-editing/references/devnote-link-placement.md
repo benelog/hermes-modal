@@ -5,9 +5,10 @@ Use when adding development-related tools, papers, or GitHub projects to `/root/
 ## Observed target pages and placement
 
 - `content/markdown.md` → `## 변환`
-  - Best fit for Markdown processing/conversion/query tools.
+  - Best fit for Markdown processing/conversion/query/rendering tools, including CLI/TUI Markdown readers.
   - Example: `https://mqlang.org/` (`mq`) was added here as a Rust CLI that processes Markdown with jq-like syntax.
-  - Include the GitHub URL as a nested bullet when the landing page exposes a repo.
+  - Example: `https://github.com/charmbracelet/glow` (`Glow`) was added here as a Go CLI/TUI that renders Markdown in the terminal, discovers local/Git-repo Markdown files, and supports file/stdin/GitHub/HTTP Markdown inputs.
+  - Include the GitHub URL as a nested bullet when the landing page exposes a separate repo; for GitHub-project URLs, the top-level link can be the repo itself.
 
 - `content/ai-productivity.md` → `## 사례/연구`
   - Best fit for research reports/papers about AI coding tools, developer productivity, task-level vs organization-level output, DORA/PR/commit/release effects, and AI coding measurement.
