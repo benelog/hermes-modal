@@ -13,6 +13,7 @@ Use when adding development-related tools, papers, or GitHub projects to `/root/
   - Best fit for research reports/papers about AI coding tools, developer productivity, task-level vs organization-level output, DORA/PR/commit/release effects, and AI coding measurement.
   - Example: NBER Working Paper 35275, “Writing Code vs. Shipping Code: Productivity Effects Across Generations of AI Coding Tools,” was added here.
   - For NBER papers, prefer the PDF link if the user provided it, but also include DOI as a nested bullet when available. NBER metadata can be extracted from `https://www.nber.org/papers/<id>` via citation meta tags; Jina Reader works for both paper pages and PDFs.
+  - If a news article is secondary coverage of a paper/report already listed, add it as a nested `국문 기사:` or similar source-language note under the existing primary-source bullet instead of creating a duplicate top-level item.
 
 - `content/code-review.md` → `## 도구`
   - Best fit for PR review/code review tools, including AI/agentic PR reviewers.
@@ -29,4 +30,5 @@ Use when adding development-related tools, papers, or GitHub projects to `/root/
 
 - GitHub repo pages: use GitHub API `/repos/{owner}/{repo}` for description/language/stars plus raw `README.md` for grounded summary. If the README is long, extract only relevant sections such as “How It Works,” “Quick Start,” and “GitHub Actions Integration.”
 - PDF papers: if local `pdftotext`/Python PDF libraries are unavailable, use Jina Reader on the PDF URL (`https://r.jina.ai/http://https://...pdf`) or the canonical abstract page.
+- AI Times article pages: direct scraping may require extra dependencies or return noisy chrome; Jina Reader with the original URL form `https://r.jina.ai/http://https://www.aitimes.com/news/articleView.html?idxno=...` can extract the title, published time, and body. Use the original AI Times URL in the note, not the Jina URL.
 - Devnote deployed URL mapping: `content/<slug>.md` → `https://devnote.benelog.net/<slug>`; verify with `curl -I -L` when reporting it.
