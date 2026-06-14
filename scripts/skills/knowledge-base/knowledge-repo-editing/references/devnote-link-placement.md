@@ -11,8 +11,9 @@ Use when adding development-related tools, papers, or GitHub projects to `/root/
   - Include the GitHub URL as a nested bullet when the landing page exposes a separate repo; for GitHub-project URLs, the top-level link can be the repo itself.
 
 - `content/ai-productivity.md` → `## 사례/연구`
-  - Best fit for research reports/papers about AI coding tools, developer productivity, task-level vs organization-level output, DORA/PR/commit/release effects, and AI coding measurement.
+  - Best fit for research reports/papers and engineering-organization case studies about AI coding tools, developer productivity, task-level vs organization-level output, DORA/PR/commit/release effects, AI coding measurement, and bottlenecks shifting from coding to review/decision-making.
   - Example: NBER Working Paper 35275, “Writing Code vs. Shipping Code: Productivity Effects Across Generations of AI Coding Tools,” was added here.
+  - Example: Spotify Engineering’s “Coding Is No Longer the Constraint” was added here because it reports AI coding adoption/PR-frequency metrics, Fleet Management/Honk agent automation, Backstage/Soundcheck DevEx guardrails, and review/prioritization as the new bottleneck.
   - For NBER papers, prefer the PDF link if the user provided it, but also include DOI as a nested bullet when available. NBER metadata can be extracted from `https://www.nber.org/papers/<id>` via citation meta tags; Jina Reader works for both paper pages and PDFs.
   - If a news article is secondary coverage of a paper/report already listed, add it as a nested `국문 기사:` or similar source-language note under the existing primary-source bullet instead of creating a duplicate top-level item.
 
