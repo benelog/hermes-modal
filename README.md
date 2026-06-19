@@ -269,6 +269,10 @@ Telegram에서 "카카오톡 ABC방 요약해줘"라고 보내면 카카오톡 '
 
 cron 자동요약(매일 07:00)은 충분히 테스트한 뒤 추가한다(현재 범위 밖).
 
+기간(`since`)은 메시지 전송 시각이 아니라 **수집 시각**(`received_at`, 서버 스탬프) 기준이다.
+디바이스가 절대 시각을 신뢰성 있게 못 만들기 때문이며, "열면 캡처" 모델상 오늘 처음 스크롤한
+오래된 메시지는 "오늘" 요약에도 포함될 수 있다(= 지난 N일 수집분).
+
 ### 배포/테스트
 1. 토큰 시크릿 반영: `KAKAO_COLLECTOR_TOKEN=<값> python scripts/create_modal_secret.py`
 2. 배포: `modal deploy modal_app.py` → 출력의 `kakao-ingest`/`kakao-messages` URL 확인.

@@ -86,7 +86,8 @@ function scrapeVisible(seen, lastSenderRef) {
         if (!sender) sender = lastSenderRef.value;
         else lastSenderRef.value = sender;
 
-        const dedupe = sender + "" + body + "" + ctime;
+        // 서버 message_key와 동일하게 \u0001 구분자로 필드 경계를 명확히 한다.
+        const dedupe = sender + "\u0001" + body + "\u0001" + ctime;
         if (seen[dedupe]) continue;
         seen[dedupe] = true;
         out.push({ room: CONFIG.ROOM_NAME, sender: sender, text: body, ts: ctime });
