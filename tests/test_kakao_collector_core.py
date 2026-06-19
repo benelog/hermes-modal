@@ -25,6 +25,13 @@ class MessageKeyTests(unittest.TestCase):
         key = collector_core.message_key("아카라카북클럽", "홍길동", "안녕", "오후 3:25")
         self.assertTrue(key.startswith("아카라카북클럽|"))
 
+    def test_field_boundary_is_unambiguous(self):
+        # Fields are joined with a delimiter so shifting a character across a
+        # field boundary still produces a different key (guards the dedupe id).
+        a = collector_core.message_key("R", "ab", "c", "x")
+        b = collector_core.message_key("R", "a", "bc", "x")
+        self.assertNotEqual(a, b)
+
 
 class ParseSinceTests(unittest.TestCase):
     def test_default_is_one_day(self):
