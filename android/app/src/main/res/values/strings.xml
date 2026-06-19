@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Kakao Collector</string>
+    <string name="accessibility_description">아카라카북클럽 방의 메시지를 읽어 Modal로 전송합니다(읽기 전용).</string>
+</resources>

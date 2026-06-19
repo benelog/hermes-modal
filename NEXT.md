@@ -49,7 +49,13 @@ Telegram으로 돌려준다. 요약·전달은 Modal에서 실행. 카톡은 **�
 - **Telegram 발신(outbound) 정상** 확인(가이드/파일 전송 성공). DM chat_id = `7160469912`.
 
 ## ⏳ 남은 일 = 디바이스 캡처 앱 셋업 (아직 미완)
-대상 방을 긁어 `/ingest`로 POST하는 폰 앱이 아직 안 정해짐/안 끝남. **여기가 다음 작업.**
+대상 방을 긁어 `/ingest`로 POST하는 폰 앱. **여기가 다음 작업.**
+
+> **결정됨: 전용 앱(custom APK)으로 감.** 코드 스캐폴딩 완료 → `android/` (Kotlin,
+> AccessibilityService, 단일 목적, 무료, 조용한 방 OK, 내 서명 APK 사이드로딩).
+> 빌드/캘리브레이션/설치 가이드: `android/README.md`. (AutoInput 유료·범용엔진 신뢰 이슈를
+> 전용앱이 해소 — 내 코드라 신뢰 명확, 결제 불필요.)
+> 남은 건: ① Android Studio로 빌드 ② Calibration으로 노드 id 3개 확정 ③ 설치·수집·E2E.
 
 ### 디바이스 옵션 & 현재 결정 상태
 "앱마켓 정식 + 조용한 방 + 구조적 읽기"를 **동시에 만족하는 무료 길은 없음.** 하나는 양보 필요:
@@ -89,10 +95,12 @@ Telegram으로 돌려준다. 요약·전달은 Modal에서 실행. 카톡은 **�
 - Telegram DM chat_id: `7160469912`.
 
 ## 다음에 할 일 (체크리스트)
-- [ ] **디바이스 방식 최종 결정**: AutoInput 체험판 진행 vs MacroDroid 알림 전환.
-  - MacroDroid로 가면: 셋업 가이드 새로 작성 필요(트리거 `Notification Received`(카톡+방이름)
-    → 액션 `HTTP Request` POST `/ingest`), 그 방 알림 ON 필요.
-- [ ] 선택한 앱으로 캡처 1회 실행 → `curl ".../kakao-messages?token=<TOKEN>&since=1day"`로 적재 확인.
+- [x] **디바이스 방식 결정**: 전용 앱(`android/`, AccessibilityService).
+- [ ] **앱 빌드**: Android Studio로 `android/` 열기(첫 동기화에 Gradle wrapper 생성) → `Config.kt`의
+  `TOKEN` 채우기(`~/.hermes/.env`에서) → 빌드. 상세 `android/README.md`.
+- [ ] **Calibration**: `Config.CALIBRATE=true` 빌드·설치 → 접근성 ON → 대상 방 열기 →
+  `adb logcat -s KakaoCollector`로 `MSG_ID/NAME_ID/TIME_ID/TITLE_ID` 확정 → `CALIBRATE=false` 재빌드.
+- [ ] 앱으로 캡처 1회(방 열고 스크롤) → `curl ".../kakao-messages?token=<TOKEN>&since=1day"`로 적재 확인.
 - [ ] **Telegram 수신(webhook) 확인**: 시크릿 재생성 때 `TELEGRAM_WEBHOOK_SECRET`이 새로 생성됨.
   프로젝트가 기동 시 webhook 재등록하도록 설계됐지만, **봇에 아무 메시지나 보내 정상 응답하는지 확인**.
   안 되면 webhook 재설정 필요.
