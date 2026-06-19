@@ -260,8 +260,9 @@ Telegram에서 "카카오톡 ABC방 요약해줘"라고 보내면 카카오톡 '
 최근 메시지를 한국어로 요약해 Telegram으로 돌려준다. 설계: `docs/superpowers/specs/2026-06-20-kakao-bookclub-summary-bot-design.md`.
 
 구성:
-- 디바이스: 안드로이드 폰의 AutoJs6 접근성 스크립트가 대상 방을 열 때 메시지를 긁어
-  Modal `kakao-ingest`로 POST한다(읽기 전용). 셋업: `scripts/autojs/README.md`.
+- 디바이스: 안드로이드 폰의 접근성 자동화가 대상 방을 열 때 메시지를 긁어 Modal
+  `kakao-ingest`로 POST한다(읽기 전용, 조용한 방도 동작). 앱마켓 정식 앱 경로(권장):
+  **Tasker + AutoInput** — 셋업 `scripts/tasker/README.md`. (대안: AutoJs6 — `scripts/autojs/README.md`)
 - Modal: `kakao_ingest`(POST)/`kakao_messages`(GET) 엔드포인트가 `modal.Dict`에
   14일 보존으로 적재/조회한다. 인증은 시크릿 `KAKAO_COLLECTOR_TOKEN`.
 - Hermes: skill `kakao-room-summary`가 `~/.hermes/scripts/kakao_fetch.py`로 조회해
