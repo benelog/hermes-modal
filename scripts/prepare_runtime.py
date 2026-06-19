@@ -388,6 +388,8 @@ def write_env_file() -> None:
         "QMD_GENERATE_MODEL",
         "QMD_RERANK_MODEL",
         "QMD_LLAMA_GPU",
+        "KAKAO_COLLECTOR_TOKEN",
+        "KAKAO_MESSAGES_URL",
     ]
     lines = []
     for key in keys:

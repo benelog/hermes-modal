@@ -83,6 +83,11 @@ def build_secret_values(webhook_url: str | None) -> dict[str, str]:
         or local.get("TELEGRAM_WEBHOOK_SECRET")
         or secrets.token_urlsafe(32)
     )
+    values["KAKAO_COLLECTOR_TOKEN"] = (
+        os.environ.get("KAKAO_COLLECTOR_TOKEN")
+        or local.get("KAKAO_COLLECTOR_TOKEN")
+        or secrets.token_urlsafe(32)
+    )
     if webhook_url:
         values["TELEGRAM_WEBHOOK_URL"] = webhook_url.rstrip("/")
     elif local.get("TELEGRAM_WEBHOOK_URL"):

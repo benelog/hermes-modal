@@ -91,6 +91,30 @@ repos:
             "git clone https://x-access-token:***@github.com/benelog/diary.git /tmp/diary",
         )
 
+    def test_write_env_file_includes_kakao_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            saved_home = prepare_runtime.HERMES_HOME
+            saved_url = os.environ.get("KAKAO_MESSAGES_URL")
+            saved_token = os.environ.get("KAKAO_COLLECTOR_TOKEN")
+            prepare_runtime.HERMES_HOME = Path(tmpdir)
+            os.environ["KAKAO_MESSAGES_URL"] = "https://x--kakao-messages.modal.run"
+            os.environ["KAKAO_COLLECTOR_TOKEN"] = "tok-123"
+            try:
+                prepare_runtime.write_env_file()
+                content = (Path(tmpdir) / ".env").read_text(encoding="utf-8")
+            finally:
+                prepare_runtime.HERMES_HOME = saved_home
+                if saved_url is None:
+                    os.environ.pop("KAKAO_MESSAGES_URL", None)
+                else:
+                    os.environ["KAKAO_MESSAGES_URL"] = saved_url
+                if saved_token is None:
+                    os.environ.pop("KAKAO_COLLECTOR_TOKEN", None)
+                else:
+                    os.environ["KAKAO_COLLECTOR_TOKEN"] = saved_token
+            self.assertIn('KAKAO_MESSAGES_URL="https://x--kakao-messages.modal.run"', content)
+            self.assertIn('KAKAO_COLLECTOR_TOKEN="tok-123"', content)
+
 
 if __name__ == "__main__":
     unittest.main()
