@@ -253,3 +253,26 @@ modal run modal_app.py::commit_skills
 ### 컨테이너 시작 시 config가 갱신되지 않음
 
 `prepare_runtime.py` 변경이 반영되지 않으면 `HERMES_MODAL_OVERWRITE_CONFIG=1`이 secret/env에 들어가 있는지 확인하세요. `modal_app.py`의 `common_env` 기본값이지만 secret으로 덮어써졌을 수 있습니다.
+
+## 카카오톡 북클럽 대화 요약
+
+Telegram에서 "카카오톡 ABC방 요약해줘"라고 보내면 카카오톡 '아카라카북클럽' 방의
+최근 메시지를 한국어로 요약해 Telegram으로 돌려준다. 설계: `docs/superpowers/specs/2026-06-20-kakao-bookclub-summary-bot-design.md`.
+
+구성:
+- 디바이스: 안드로이드 폰의 AutoJs6 접근성 스크립트가 대상 방을 열 때 메시지를 긁어
+  Modal `kakao-ingest`로 POST한다(읽기 전용). 셋업: `scripts/autojs/README.md`.
+- Modal: `kakao_ingest`(POST)/`kakao_messages`(GET) 엔드포인트가 `modal.Dict`에
+  14일 보존으로 적재/조회한다. 인증은 시크릿 `KAKAO_COLLECTOR_TOKEN`.
+- Hermes: skill `kakao-room-summary`가 `~/.hermes/scripts/kakao_fetch.py`로 조회해
+  요약한 뒤 Telegram으로 답장한다.
+
+cron 자동요약(매일 07:00)은 충분히 테스트한 뒤 추가한다(현재 범위 밖).
+
+### 배포/테스트
+1. 토큰 시크릿 반영: `KAKAO_COLLECTOR_TOKEN=<값> python scripts/create_modal_secret.py`
+2. 배포: `modal deploy modal_app.py` → 출력의 `kakao-ingest`/`kakao-messages` URL 확인.
+   `modal_app.py`의 `KAKAO_MESSAGES_URL`이 다르면 교정 후 재배포.
+3. 엔드포인트 검증: `scripts/autojs/README.md`의 curl로 적재/조회 확인.
+4. 디바이스 셋업: `scripts/autojs/README.md`대로 폰에 스크립트 설치·calibration·수집.
+5. E2E: Telegram에 "카카오톡 ABC방 요약해줘" → 한국어 요약 답장 확인.
