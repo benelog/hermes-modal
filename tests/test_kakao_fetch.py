@@ -1,6 +1,10 @@
 from pathlib import Path
 import importlib.util
+import io
+import json
 import unittest
+from contextlib import redirect_stdout
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "cron" / "kakao_fetch.py"
@@ -22,6 +26,19 @@ class BuildUrlTests(unittest.TestCase):
         self.assertIn("since=3day", url)
         # base의 뒤쪽 슬래시는 중복되지 않아야 함
         self.assertNotIn(".run//?", url)
+
+
+class MainGuardTests(unittest.TestCase):
+    def test_missing_env_prints_ok_false_json_and_returns_1(self):
+        buf = io.StringIO()
+        with mock.patch.dict(kakao_fetch.os.environ, {}, clear=True), \
+                mock.patch.object(kakao_fetch.sys, "argv", ["kakao_fetch.py"]), \
+                redirect_stdout(buf):
+            rc = kakao_fetch.main()
+        self.assertEqual(rc, 1)
+        payload = json.loads(buf.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertIn("not set", payload["error"])
 
 
 if __name__ == "__main__":
