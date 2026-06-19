@@ -345,12 +345,6 @@ def write_hermes_config() -> None:
             }
         },
         "toolsets": ["hermes-cli"],
-        "quick_commands": {
-            "english": {
-                "type": "exec",
-                "command": str(HERMES_HOME / "scripts" / "run_english_cron.py"),
-            },
-        },
         "security": {
             "tirith_enabled": False,
             "redact_secrets": True,
