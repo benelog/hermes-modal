@@ -30,6 +30,13 @@ workspace_volume = modal.Volume.from_name("hermes-workspace", create_if_missing=
 qmd_cache_volume = modal.Volume.from_name("qmd-cache", create_if_missing=True)
 qmd_config_volume = modal.Volume.from_name("qmd-config", create_if_missing=True)
 
+# KakaoTalk message collector store. modal.Dict is shared across containers with
+# fresh reads, avoiding the commit/reload staleness a Volume would have between
+# the ingest endpoint and the messages endpoint.
+KAKAO_DICT_NAME = "kakao-collect"
+KAKAO_SCRIPTS_PATH = "/opt/hermes-modal/scripts"
+kakao_dict = modal.Dict.from_name(KAKAO_DICT_NAME, create_if_missing=True)
+
 # Keep these package versions close to the currently-working local setup.
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -42,6 +49,7 @@ image = (
     .pip_install(
         "hermes-agent[messaging,mcp,cron,cli] @ git+https://github.com/NousResearch/hermes-agent.git",
         "modal>=1.0.0,<2",
+        "fastapi[standard]",
     )
     .add_local_dir("scripts", remote_path="/opt/hermes-modal/scripts")
 )
@@ -70,6 +78,10 @@ common_env = {
     # Force prepare_runtime.py to rewrite config.yaml on each container start
     # so changes in scripts/prepare_runtime.py reach the deployed runtime.
     "HERMES_MODAL_OVERWRITE_CONFIG": "1",
+    # KakaoTalk collector: Hermes' kakao-room-summary skill reads this to fetch
+    # collected messages. Confirm the exact URL from the deploy output and fix
+    # if the workspace/label host differs.
+    "KAKAO_MESSAGES_URL": "https://benelog--kakao-messages.modal.run",
 }
 
 
@@ -256,3 +268,78 @@ def doctor():
         timeout=540,
     )
     return out
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    timeout=60,
+    env=common_env,
+)
+@modal.fastapi_endpoint(method="POST", label="kakao-ingest")
+def kakao_ingest(item: dict, token: str = ""):
+    """Receive one scraped KakaoTalk message from the device and store it.
+
+    `token` is a query parameter validated against KAKAO_COLLECTOR_TOKEN.
+    `item` is the JSON body: {room, sender, text, ts|client_time}.
+    """
+    import os
+    import sys
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    if token != os.environ.get("KAKAO_COLLECTOR_TOKEN", ""):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    sys.path.insert(0, KAKAO_SCRIPTS_PATH)
+    from kakao.collector_core import message_key, normalize_item
+
+    try:
+        rec = normalize_item(item, datetime.now(timezone.utc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    key = message_key(rec["room"], rec["sender"], rec["text"], rec["client_time"])
+    kakao_dict[key] = rec
+    return {"ok": True, "key": key}
+
+
+@app.function(
+    image=image,
+    secrets=[secret],
+    timeout=60,
+    env=common_env,
+)
+@modal.fastapi_endpoint(method="GET", label="kakao-messages")
+def kakao_messages(token: str = "", since: str = "1day", room: str = ""):
+    """Return collected messages within the `since` window, oldest first.
+
+    Prunes records older than the 14-day retention on each read (best effort).
+    """
+    import os
+    import sys
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    if token != os.environ.get("KAKAO_COLLECTOR_TOKEN", ""):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    sys.path.insert(0, KAKAO_SCRIPTS_PATH)
+    from kakao.collector_core import expired_keys, select_messages
+
+    now = datetime.now(timezone.utc)
+    items_with_keys = list(kakao_dict.items())
+
+    stale = expired_keys(items_with_keys, now, retention_days=14)
+    for key in stale:
+        try:
+            del kakao_dict[key]
+        except KeyError:
+            pass
+
+    stale_set = set(stale)
+    records = [rec for key, rec in items_with_keys if key not in stale_set]
+    selected = select_messages(records, room or None, since, now)
+    return {"ok": True, "count": len(selected), "messages": selected}
