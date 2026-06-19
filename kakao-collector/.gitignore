@@ -9,5 +9,5 @@ build/
 *.iml
 .idea/
 
-# Gradle wrapper jar is regenerated locally (see android/README.md)
+# Gradle wrapper jar is regenerated locally (see README.md)
 gradle/wrapper/gradle-wrapper.jar
