@@ -29,7 +29,7 @@ for room, total, unsent in db.execute(
 print("\n== 최근 20건 (KST) ==")
 for ca, room, sender, ok, text in db.execute(
         "select collected_at, room, sender, sent_ok, substr(text,1,40) from messages order by _id desc limit 20"):
-    t = datetime.datetime.utcfromtimestamp(ca / 1000) + datetime.timedelta(hours=9)
+    t = datetime.datetime.fromtimestamp(ca / 1000, datetime.timezone.utc) + datetime.timedelta(hours=9)
     print(f"  {t:%Y-%m-%d %H:%M} | {(room or '')[:22]:22} | {(sender or '')[:14]:14} | ok={ok} | {(text or '').replace(chr(10), ' ')}")
 PY
 fi
