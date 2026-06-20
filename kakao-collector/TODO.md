@@ -4,17 +4,27 @@
 현재: 앱 스캐폴딩만 완료(빌드·실기기 검증 전). 서버측(Modal/Hermes)은 배포·검증 완료.
 
 ## A. 먼저 — 동작시키기 (필수 경로)
-- [ ] **첫 빌드**: Android Studio로 `kakao-collector/` 열기 → Gradle 동기화(wrapper 자동 생성)
-      → 컴파일 통과 확인. (이 환경에선 Android SDK가 없어 빌드 검증을 못 했으니, 첫 빌드에서
-      나오는 컴파일 에러/경고가 있으면 거기서부터 수정.)
-- [ ] `Config.kt`에 `TOKEN` 채우기(`~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN`).
-- [ ] **Calibration**: `CALIBRATE=true` 빌드·설치 → 접근성 ON → 대상 방 열기 →
-      `adb logcat -s KakaoCollector` 덤프로 `MSG_ID/NAME_ID/TIME_ID/TITLE_ID` 확정 → `CALIBRATE=false` 재빌드.
-- [ ] 캡처 1회(방 열고 스크롤) → `curl ".../kakao-messages?token=<TOKEN>&since=1day"`로 적재/필드 확인.
+- [x] **첫 빌드 완료**: Android SDK(cmdline-tools + platform-34 + build-tools 34.0.0)를 `~/Android/Sdk`에
+      설치, JDK 17(`~/.sdkman/.../17.0.16-tem`) + gradle wrapper 8.7로 `./gradlew assembleDebug` 성공.
+      산출물 `app/build/outputs/apk/debug/app-debug.apk`. (빌드 방법은 README §6 참고.)
+- [x] **폰 설치 완료**: Pixel 10 Pro XL(Android 16, API 36)에 `./install.sh`로 설치 확인.
+      (Linux adb 권한은 `./setup_udev.sh`로 해결. 빌드는 JDK 17 필요 — 전역 JDK 25면 `What went wrong: 25` 실패.)
+- [x] **토큰은 이제 앱에서 입력**: `Config.kt` 수정 불필요. 앱 실행 → "설정"에서 토큰 입력 후 "설정 저장".
+      (`~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN`과 동일 값.)
+- [x] **Calibration 완료**: 실측 id 확정 — 본문 `id/message`, 보낸이 `id/nickname`, 시각 `id/time`(희소),
+      방제목 `id/name`. `Config.kt` 기본값에 반영. (접근성 켜기는 `enable_service.sh`로 — 제한된 설정 우회.)
+- [x] **수집 검증 완료**: 방 열고 스크롤 → 실제 메시지(보낸이/본문 정확)가 Modal `/messages`에 적재 확인.
+      검증 중 발견·수정한 버그: ①방 매칭 래치화(스크롤 중 끊김), ②일시 윈도우에서 래치 오프 방지,
+      ③보낸이 미상(빈 sender) 메시지 스킵(중복 적재 방지).
+- [x] **보낸이 귀속 완성**: 내 메시지엔 닉네임이 안 떠서 직전 남 닉네임으로 오귀속되던 문제 →
+      **정렬(우측=내것/좌측=남것)** 으로 판별, 내 메시지는 설정의 "내 닉네임"(예: 정상혁)으로 고정.
+      남 메시지 수집·미리보기 제외도 함께 검증. (E2E: 내것→정상혁, 김응수 PDF→김응수 확인.)
+- [ ] (정리) Modal 저장소에 수정 전 테스트 잔여(빈-sender 중복 3건) 있음 — 실사용 전
+      `modal dict clear kakao-collect -y`로 비우면 깨끗(14일 후 자동 만료되기도 함).
 
 ## B. 앱 다듬기 (이번 세션 핵심)
-- [ ] **토큰을 코드 밖으로**: `Config.kt` 상수 대신 설정 화면 + `SharedPreferences`(또는
-      `EncryptedSharedPreferences`)로 토큰/방이름/ids 편집. 실값을 git에 안 두게 함.
+- [x] **토큰을 코드 밖으로**: 완료. `Settings.kt`(SharedPreferences) + 설정 화면에서 토큰/URL/방이름/ids/CALIBRATE
+      편집. `Config.kt`는 이제 기본값(폴백)만 보유 → 실값을 git에 두지 않음. `Poster`/`Service`는 `Settings`를 읽음.
 - [ ] **중복 상태 영속화**: 현재 `seen`은 인메모리(앱 재시작 시 초기화) → 재시작해도 유지되게
       (서버 중복제거가 있으니 치명적이진 않지만 트래픽 절약).
 - [ ] **전송 실패 처리**: 네트워크 오류 시 재시도/오프라인 큐(간단한 보관 후 재전송).

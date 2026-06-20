@@ -16,7 +16,7 @@ object Poster {
             var conn: HttpURLConnection? = null
             try {
                 val url = URL(
-                    Config.INGEST_URL + "?token=" + URLEncoder.encode(Config.TOKEN, "UTF-8"),
+                    Settings.ingestUrl + "?token=" + URLEncoder.encode(Settings.token, "UTF-8"),
                 )
                 conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"

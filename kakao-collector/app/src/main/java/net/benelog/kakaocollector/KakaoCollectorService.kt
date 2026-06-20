@@ -24,74 +24,160 @@ class KakaoCollectorService : AccessibilityService() {
     private val seen = LinkedHashSet<String>()
     private var lastRun = 0L
 
+    // 카톡은 방 제목 노드를 '방을 열 때'만 트리에 노출하고 스크롤 중엔 빼버린다.
+    // 그래서 매번 제목으로 판별하면 스크롤 중 수집이 끊긴다 → 방 입장 여부를 래치로 기억한다.
+    private var inTargetRoom = false
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        Settings.init(this) // Application에서 이미 했지만 방어적으로(멱등).
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
         if (event.packageName?.toString() != Config.KAKAO_PACKAGE) return
         when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            // 화면 전환은 빈도가 낮고 방 판별의 기준점이므로 레이트리밋 없이 항상 처리.
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ->
+                handle(windowChanged = true)
+            // 스크롤/내용변경은 폭주하므로 레이트리밋.
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            -> maybeScrape()
+            -> {
+                val now = System.currentTimeMillis()
+                if (now - lastRun < MIN_INTERVAL_MS) return
+                lastRun = now
+                handle(windowChanged = false)
+            }
         }
     }
 
     override fun onInterrupt() {}
 
-    private fun maybeScrape() {
-        val now = System.currentTimeMillis()
-        if (now - lastRun < MIN_INTERVAL_MS) return
-        lastRun = now
+    private fun handle(windowChanged: Boolean) {
         val root = rootInActiveWindow ?: return
         try {
-            if (Config.CALIBRATE) {
+            if (Settings.calibrate) {
                 dumpTree(root, 0)
                 return
             }
-            if (!isTargetRoom(root)) return
-            scrape(root)
+            // 방 제목이 보이면 입장 확정(latch ON). 스크롤 중엔 제목이 없어도 유지.
+            // 화면이 바뀌었는데(WINDOW_STATE_CHANGED) 제목이 안 보이면 방을 떠난 것 → latch OFF.
+            // 래치 갱신은 화면전환 또는 아직 미입장일 때만(스크롤마다 재탐색하면 비싸고, 방 안에선 제목이 안 보임).
+            if (windowChanged || !inTargetRoom) {
+                val title = visibleRoomTitle(root) // 제목 노드(id/name)가 보이면 그 텍스트, 없으면 null
+                when {
+                    // 대상 방 제목이 보임 → 입장 확정.
+                    title != null && title.contains(Settings.roomName) -> {
+                        if (!inTargetRoom) Log.i(TAG, "entered target room")
+                        inTargetRoom = true
+                    }
+                    // '다른 방' 제목이 보임 → 방을 떠난 것.
+                    title != null -> inTargetRoom = false
+                    // 제목 노드가 아예 안 보임(반응팝업/IME 등 일시 윈도우): 래치 유지.
+                    //   단, 아직 미입장 상태라면 방이름 텍스트 폭넓게 한 번 더 탐색(첫 진입 보조).
+                    !inTargetRoom && roomNameVisible(root) -> {
+                        Log.i(TAG, "entered target room")
+                        inTargetRoom = true
+                    }
+                }
+            }
+            if (inTargetRoom) scrape(root)
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
         }
     }
 
-    private fun isTargetRoom(root: AccessibilityNodeInfo): Boolean {
-        if (Config.TITLE_ID.isNotEmpty()) {
-            for (t in root.findAccessibilityNodeInfosByViewId(Config.TITLE_ID)) {
+    /**
+     * 화면에 보이는 '방 제목 노드(titleId=id/name)'의 텍스트. 없으면 null.
+     * 제목 노드가 보일 때만 방 식별이 확실하므로, 래치를 끄는(다른 방) 판정에 쓴다.
+     */
+    private fun visibleRoomTitle(activeRoot: AccessibilityNodeInfo): String? {
+        val titleId = Settings.titleId
+        if (titleId.isEmpty()) return null
+        firstTitle(activeRoot, titleId)?.let { return it }
+        val wins = windows ?: return null
+        for (w in wins) {
+            val r = w.root ?: continue
+            if (r != activeRoot) firstTitle(r, titleId)?.let { return it }
+        }
+        return null
+    }
+
+    private fun firstTitle(root: AccessibilityNodeInfo, titleId: String): String? {
+        for (t in root.findAccessibilityNodeInfosByViewId(titleId)) {
+            val txt = t.text?.toString()
+            if (!txt.isNullOrEmpty()) return txt
+        }
+        return null
+    }
+
+    private fun roomNameVisible(activeRoot: AccessibilityNodeInfo): Boolean {
+        // 방 제목은 보통 활성 윈도우(방 열 때)에 있다 — 여기부터 확인.
+        if (treeContainsRoomName(activeRoot)) return true
+        // 보조: 접근성으로 접근 가능한 다른 윈도우들도 스캔(있을 때만).
+        val wins = windows ?: return false
+        for (w in wins) {
+            val r = w.root ?: continue
+            if (r != activeRoot && treeContainsRoomName(r)) return true
+        }
+        return false
+    }
+
+    private fun treeContainsRoomName(root: AccessibilityNodeInfo): Boolean {
+        val roomName = Settings.roomName
+        val titleId = Settings.titleId
+        if (titleId.isNotEmpty()) {
+            for (t in root.findAccessibilityNodeInfosByViewId(titleId)) {
                 val txt = t.text?.toString() ?: continue
-                if (txt.contains(Config.ROOM_NAME)) return true
+                if (txt.contains(roomName)) return true
             }
         }
-        // 제목 노드를 못 찾으면 화면 어딘가에 방 이름 텍스트가 있는지로 보조 판별.
+        // 제목 노드 id가 안 맞아도, 트리 어딘가에 방 이름 텍스트가 있으면 인정.
         var found = false
         walk(root) { n ->
-            if (!found && n.text?.toString() == Config.ROOM_NAME) found = true
+            if (!found && n.text?.toString() == roomName) found = true
         }
         return found
     }
 
     private fun scrape(root: AccessibilityNodeInfo) {
+        val roomName = Settings.roomName
+        val ownName = Settings.ownName
+        val nameId = Settings.nameId
+        val timeId = Settings.timeId
+        val msgId = Settings.msgId
+        val screenW = resources.displayMetrics.widthPixels
+
         val ordered = ArrayList<AccessibilityNodeInfo>()
         walk(root) { ordered.add(it) }
 
         var curSender = ""
         var curTime = ""
         var newCount = 0
+        val rect = android.graphics.Rect()
         for (n in ordered) {
             val id = n.viewIdResourceName ?: ""
             val txt = n.text?.toString()?.trim() ?: ""
             if (txt.isEmpty()) continue
             when {
-                Config.NAME_ID.isNotEmpty() && id == Config.NAME_ID -> curSender = txt
-                Config.TIME_ID.isNotEmpty() && id == Config.TIME_ID -> curTime = txt
-                Config.MSG_ID.isNotEmpty() && id == Config.MSG_ID -> {
+                nameId.isNotEmpty() && id == nameId -> curSender = txt
+                timeId.isNotEmpty() && id == timeId -> curTime = txt
+                msgId.isNotEmpty() && id == msgId -> {
+                    // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다(오른쪽 여백 < 왼쪽 여백).
+                    // 우측정렬=내 메시지 → 내 닉네임(ownName), 좌측정렬=남 메시지 → 직전 닉네임(curSender).
+                    n.getBoundsInScreen(rect)
+                    val sender = if ((screenW - rect.right) < rect.left) ownName else curSender
+                    // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
+                    if (sender.isEmpty()) continue
                     // 서버 message_key와 동일하게 \u0001 구분자로 필드 경계를 명확히 한다.
-                    val key = curSender + "\u0001" + txt + "\u0001" + curTime
+                    val key = sender + "\u0001" + txt + "\u0001" + curTime
                     if (remember(key)) {
                         newCount++
                         Poster.post(
                             JSONObject()
-                                .put("room", Config.ROOM_NAME)
-                                .put("sender", curSender)
+                                .put("room", roomName)
+                                .put("sender", sender)
                                 .put("text", txt)
                                 .put("ts", curTime),
                         )
@@ -124,13 +210,15 @@ class KakaoCollectorService : AccessibilityService() {
         }
     }
 
-    /** 캘리브레이션용: 현재 화면의 id/text를 Logcat에 덤프. */
+    /** 캘리브레이션용: 현재 화면의 id/bounds/text를 Logcat에 덤프. */
     private fun dumpTree(node: AccessibilityNodeInfo?, depth: Int) {
         node ?: return
         val id = node.viewIdResourceName
         val txt = node.text?.toString()
         if ((id != null && id.startsWith("com.kakao")) || (!txt.isNullOrEmpty())) {
-            Log.i(TAG, " ".repeat(depth) + "id=" + id + " text=" + (txt ?: ""))
+            val r = android.graphics.Rect()
+            node.getBoundsInScreen(r)
+            Log.i(TAG, " ".repeat(depth) + "id=" + id + " L=" + r.left + " R=" + r.right + " text=" + (txt ?: ""))
         }
         for (i in 0 until node.childCount) {
             dumpTree(node.getChild(i), depth + 1)

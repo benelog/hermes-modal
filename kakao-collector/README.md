@@ -73,7 +73,20 @@
   관련 코드: `scripts/kakao/collector_core.py`, `modal_app.py`(kakao_ingest/kakao_messages),
   `scripts/cron/kakao_fetch.py`, `scripts/skills/knowledge-base/kakao-room-summary/SKILL.md`.
   설계/계획: `docs/superpowers/specs|plans/2026-06-20-kakao-bookclub-summary-bot-*.md`.
-- **이 앱(폰 수집기)**: 스캐폴딩 완료, **아직 빌드·캘리브레이션·실기기 검증 전.** ← 다음 세션 작업(아래 TODO).
+- **이 앱(폰 수집기)**: **빌드·설치·실기기 수집까지 검증 완료** (Pixel 10 Pro XL, Android 16).
+  실제 메시지가 올바른 보낸이·본문으로 Modal에 적재됨을 `/messages`로 확인.
+  - 설정 코드-외부화: 토큰/URL/방/ids/CALIBRATE를 앱 "설정"에서 편집(`SharedPreferences`).
+  - **실측 node id**(2026-06 카톡): 본문 `id/message`, 보낸이 **`id/nickname`**, 시각 `id/time`(희소), 방제목 `id/name`.
+    → `Config.kt` 기본값에 반영됨.
+  - **방 매칭 = 래치 방식**: 카톡은 방 제목을 '방 열 때'만 트리에 노출(스크롤 중엔 빠짐) → 입장 시 래치 ON,
+    '다른 방 제목'이 보일 때만 OFF. 반응팝업/IME 등 일시 윈도우엔 래치 유지.
+  - **보낸이 미상 메시지는 건너뜀**: 닉네임이 화면 밖이면 빈 sender로 중복 적재되므로 스킵.
+  - **내 메시지 vs 남 메시지 = 정렬로 판별**: 카톡은 내가 보낸 메시지엔 닉네임을 안 띄운다. 말풍선이
+    **우측 정렬(오른쪽 여백 < 왼쪽 여백)** 이면 내 메시지 → 보낸이를 설정의 "내 닉네임"으로,
+    좌측 정렬이면 남 메시지 → 그 닉네임으로 적는다. 텍스트·문서(PDF)카드 모두 검증됨.
+  - **URL 미리보기 카드는 수집 안 됨**: 미리보기는 `id/chat_forward`의 `id=null` 노드(제목/설명/도메인)라
+    `id/message`가 아니어서 자동 제외된다.
+  - **실기기 E2E 검증(2026-06-20)**: 내 메시지→`정상혁`, 남 메시지(김응수)→실제 닉네임으로 Modal 적재 확인.
 - 참고로 남겨둔 다른 디바이스 방식 가이드: `scripts/tasker/README.md`(Tasker+AutoInput),
   `scripts/autojs/README.md`(AutoJs6) — 채택은 이 전용 앱.
 
@@ -81,32 +94,62 @@
 
 ## 6. 앱 빌드 / Calibration / 설치 / 수집
 
-요구사항: Android Studio(JDK 17), Android 8.0(API 26)+ 기기.
+요구사항: JDK 17, Android SDK(platform-34, build-tools 34.0.0), Android 8.0(API 26)+ 기기.
 
-### 0) Gradle wrapper (최초 1회)
-`gradle-wrapper.jar`(바이너리)는 미커밋. **Android Studio로 `kakao-collector/` 열면 첫 동기화 시 자동 생성**,
-또는 `cd kakao-collector && gradle wrapper --gradle-version 8.7`.
+### 0) 빌드 환경 (이 머신에선 이미 구성됨)
+- Android SDK: `~/Android/Sdk` (cmdline-tools + `platform-tools` + `platforms;android-34` + `build-tools;34.0.0`).
+  `app` 모듈 기준 `local.properties`의 `sdk.dir`가 이를 가리킴(미커밋).
+- JDK 17: `~/.sdkman/candidates/java/17.0.16-tem` (전역 기본 JDK는 25라 빌드 시 JDK 17 지정 필요).
+- Gradle wrapper 8.7: `gradle-wrapper.jar`은 미커밋이라 최초 1회 생성됨(`gradle wrapper --gradle-version 8.7`).
+- 새 머신이라면: cmdline-tools 받아 `sdkmanager`로 위 패키지 설치 → `local.properties`에 `sdk.dir` → wrapper 생성.
 
-### 1) 설정 (`app/src/main/java/net/benelog/kakaocollector/Config.kt`)
-- `TOKEN` = `~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN`과 동일 값. ⚠️ **실값을 git에 커밋 금지**(공유 시 placeholder 복귀).
-- `ROOM_NAME`/`INGEST_URL`은 이미 채워짐.
-- `MSG_ID/NAME_ID/TIME_ID/TITLE_ID`는 아래 Calibration으로 확정.
+### 1) 설정 (앱 화면에서 입력 — 코드 수정 불필요)
+앱 실행 → **"설정"** 섹션에서 입력 후 **"설정 저장"**:
+- **토큰** = `~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN`과 동일 값. (SharedPreferences에 저장 → git에 안 남음.)
+- **Modal Ingest URL** / **방 이름** = 기본값 채워져 있음(필요시 수정).
+- **내 닉네임** = 내가 보낸 메시지엔 카톡이 닉네임을 안 띄우므로, 내 메시지의 보낸이로 채울 값(예: `정상혁`).
+  멀티프로필로 보는 사람마다 다르게 보여도 수집은 이 값으로 고정된다. **비워두면 내 메시지는 수집 안 됨.**
+- **본문/보낸이/시각/방제목 id** = 아래 Calibration으로 확정.
+- **CALIBRATE** 체크박스 = 켜면 수집 대신 화면 노드 id를 Logcat에 덤프.
 
-### 2) Calibration (resource-id 확정 — 최초 1회 필수)
-1. `Config.CALIBRATE = true` 로 빌드·설치.
+> `Config.kt`는 이제 "기본값(폴백)"만 보유. 설정 화면에서 한 번 저장하면 그 값이 우선한다.
+> 실값(토큰 등)을 코드에 넣을 필요가 없다.
+
+### 2) Calibration (resource-id 확정 — 최초 1회 필수, 앱 재빌드 불필요)
+1. 앱 "설정"에서 **CALIBRATE 체크 → 저장**.
 2. 설정 → 접근성 → **Kakao Collector** 켜기(앱의 "접근성 설정 열기" 버튼).
 3. 카톡에서 **대상 방을 연다**.
 4. `adb logcat -s KakaoCollector` → `id=... text=...` 줄 확인.
-5. 화면과 대조해 본문/보낸이/시각/방제목 id를 `MSG_ID/NAME_ID/TIME_ID/TITLE_ID`에 채움.
-6. `Config.CALIBRATE = false` 로 되돌리고 재빌드·설치.
+5. 화면과 대조해 본문/보낸이/시각/방제목 id를 앱 "설정"의 각 필드에 입력.
+6. **CALIBRATE 해제 → 저장**.
 
 ### 3) 빌드 / 설치
+도우미 스크립트(권장 — 환경변수 자동 지정):
 ```bash
 cd kakao-collector
-./gradlew installDebug     # adb로 디버그 APK 설치
-# 또는 APK만: ./gradlew assembleDebug  → app/build/outputs/apk/debug/app-debug.apk
+./device_check.sh           # 폰 USB/디버깅 연결 진단 (no permissions·unauthorized 등 원인 안내)
+./setup_udev.sh             # (Linux 최초 1회) adb udev 규칙 설치 — 'no permissions' 해결, sudo 필요
+./install.sh                # 빌드+설치 (= assembleDebug + installDebug), JDK 17 자동 사용
+./install.sh assembleDebug  # 설치 없이 APK만
+./enable_service.sh         # 접근성 서비스 adb로 켜기 ('제한된 설정' 차단 우회, 재부팅 후 재활성)
 ```
-(Android Studio ▶ Run도 동일. 디버그 서명이면 개인 사이드로딩 충분)
+
+> ⚠ **접근성 켜기가 막힐 때** (Android 13+): 사이드로딩 앱은 설정 UI에서 접근성 토글이 "제한된 설정"으로
+> 막힌다. 두 가지 해법 — ① 설정 → 앱 → Kakao Collector → ⋮ → **"제한된 설정 허용"** 후 접근성에서 켜기,
+> 또는 ② **`./enable_service.sh`** (adb로 직접 등록, 가장 확실). 재설치/재부팅 후 안 켜져 있으면 ②를 재실행.
+수동으로 한다면:
+```bash
+export JAVA_HOME="$HOME/.sdkman/candidates/java/17.0.16-tem"   # ★ 빌드는 JDK 17
+./gradlew assembleDebug     # → app/build/outputs/apk/debug/app-debug.apk
+./gradlew installDebug      # 폰 USB 연결(adb) 시 디바이스에 설치
+```
+
+> ⚠ **흔한 실패 2가지**
+> 1. **`What went wrong: 25`** — 전역 기본 JDK가 25라 Gradle 8.7/AGP 8.5.2가 못 돎. → `JAVA_HOME`을 JDK 17로
+>    지정하거나 `./install.sh` 사용(자동 처리).
+> 2. **`no permissions (missing udev rules)`** — 리눅스에서 adb가 USB 노드 접근 불가. → `./setup_udev.sh` 후 폰 재연결.
+
+(디버그 서명이면 개인 사이드로딩 충분. 빌드·설치 검증 완료 — Pixel 10 Pro XL에 설치 확인됨.)
 
 ### 4) 수집 / 확인
 1. 접근성 ON 상태에서 **대상 방을 열고 위로 스크롤**.
@@ -133,10 +176,12 @@ kakao-collector/
     build.gradle.kts · proguard-rules.pro
     src/main/AndroidManifest.xml
     src/main/java/net/benelog/kakaocollector/
-      Config.kt                 설정 상수(토큰/방/ids/CALIBRATE)
-      KakaoCollectorService.kt  접근성 수집 서비스(핵심)
-      Poster.kt                 /ingest POST
-      MainActivity.kt           상태/접근성설정/테스트 화면
+      Config.kt                 설정 "기본값"(폴백). 실값은 Settings에서.
+      Settings.kt               SharedPreferences 기반 런타임 설정(토큰/URL/방/ids/CALIBRATE)
+      CollectorApp.kt           Application — 시작 시 Settings 초기화
+      KakaoCollectorService.kt  접근성 수집 서비스(핵심) — Settings 사용
+      Poster.kt                 /ingest POST — Settings.token/ingestUrl 사용
+      MainActivity.kt           상태/접근성설정/설정편집/테스트 화면
     src/main/res/...            레이아웃·문자열·테마·접근성설정·아이콘
   TODO.md                       다음 세션 할 일
 ```

@@ -30,11 +30,127 @@
             android:layout_height="wrap_content"
             android:text="접근성 설정 열기" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?android:attr/listDivider" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:text="설정"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:text="토큰/URL 등 실값을 여기서 입력하면 코드(git)에 두지 않아도 됩니다."
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="토큰 (KAKAO_COLLECTOR_TOKEN)" />
+
+        <EditText
+            android:id="@+id/etToken"
+            style="@style/FieldInput"
+            android:hint="Modal 시크릿과 동일한 값"
+            android:inputType="textNoSuggestions" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="Modal Ingest URL" />
+
+        <EditText
+            android:id="@+id/etUrl"
+            style="@style/FieldInput"
+            android:hint="https://benelog--kakao-ingest.modal.run"
+            android:inputType="textUri" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="방 이름" />
+
+        <EditText
+            android:id="@+id/etRoom"
+            style="@style/FieldInput"
+            android:hint="아카라카북클럽"
+            android:inputType="text" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="내 닉네임 (내 메시지 보낸이로 표시 — 내 메시지엔 닉네임이 안 떠서 필요)" />
+
+        <EditText
+            android:id="@+id/etOwnName"
+            style="@style/FieldInput"
+            android:hint="예: 정상혁..."
+            android:inputType="text" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="본문 id (MSG_ID)" />
+
+        <EditText
+            android:id="@+id/etMsgId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/message"
+            android:inputType="textNoSuggestions" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="보낸이 id (NAME_ID)" />
+
+        <EditText
+            android:id="@+id/etNameId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/name"
+            android:inputType="textNoSuggestions" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="시각 id (TIME_ID)" />
+
+        <EditText
+            android:id="@+id/etTimeId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/created_at"
+            android:inputType="textNoSuggestions" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="방제목 id (TITLE_ID, 선택)" />
+
+        <EditText
+            android:id="@+id/etTitleId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/title"
+            android:inputType="textNoSuggestions" />
+
+        <CheckBox
+            android:id="@+id/cbCalibrate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="CALIBRATE — 수집 대신 화면 노드 id를 Logcat에 덤프" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="설정 저장" />
+
         <Button
             android:id="@+id/btnTest"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="테스트 메시지 전송" />
+            android:text="저장 후 테스트 메시지 전송" />
 
         <TextView
             android:id="@+id/info"
