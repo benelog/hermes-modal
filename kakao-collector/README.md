@@ -229,7 +229,10 @@ Telegram을 거치지 않고 카톡 방 안에서 끝난다. 요약 LLM은 새 �
 2. 대상 방을 열고 **입력창을 탭**한 뒤 `adb logcat -s KakaoCollector`에서 입력창 EditText의 `id=...` 확인.
 3. 무언가 입력해 **전송 버튼이 나타난 상태**에서 전송 버튼의 `id=...` 확인.
 4. 두 id를 앱 "입력창 id"/"전송버튼 id"에 입력, **CALIBRATE 해제 → 저장**.
-   (실측 추정 기본값: 입력창 `id/message_edit_text`, 전송 `id/send`. 다르면 위로 교정.)
+   (실측 2026-06 카톡 = 코드 기본값: 입력창 `id/message_edit_text`(MultiAutoCompleteTextView),
+   전송 `id/send_button_layout`. UI 업데이트로 바뀌면 위 절차로 재캘리브레이션.)
+   > 참고: `uiautomator dump`(adb)로 화면 XML을 받아 resource-id를 찾는 방법이 가장 깔끔하다 —
+   > 입력칸+전송버튼이 동시에 보이는 상태에서 `adb shell uiautomator dump` → XML에서 위 id 확인.
 
 ### 안전장치
 - **자동발신 기본 OFF** — 켜기 전까지 어떤 방에도 발신하지 않는다.

@@ -63,8 +63,8 @@ object Config {
     /** 카톡 메시지 입력창 EditText id(캘리브레이션). 비면 발신 불가. */
     const val INPUT_ID = "com.kakao.talk:id/message_edit_text"
 
-    /** 카톡 전송 버튼 id(캘리브레이션). 비면 발신 불가. */
-    const val SEND_ID = "com.kakao.talk:id/send"
+    /** 카톡 전송 버튼 id(캘리브레이션). 비면 발신 불가. (실측 2026-06 카톡: send_button_layout) */
+    const val SEND_ID = "com.kakao.talk:id/send_button_layout"
 
     /** true면 방에서 멘션 요약 감지 시 그 방으로 자동 발신. 기본 false(캘리브레이션 후 수동 ON). */
     const val AUTO_REPLY = false

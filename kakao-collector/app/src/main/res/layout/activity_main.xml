@@ -204,7 +204,7 @@
         <EditText
             android:id="@+id/etSendId"
             style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/send"
+            android:hint="com.kakao.talk:id/send_button_layout"
             android:inputType="textNoSuggestions" />
 
         <CheckBox
