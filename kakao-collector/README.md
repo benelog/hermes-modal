@@ -1,255 +1,142 @@
 # Kakao Collector
 
-카카오톡 특정 단일 방의 메시지를 모아 매일/온디맨드로 **요약**해 받기 위한 시스템에서,
-**폰 쪽 수집기(Android 전용 앱)** 부분이다. 이 디렉토리는 그 앱이지만, README는 앱이 속한
-**전체 통신 구조·요구사항·추구 원리**까지 함께 기록한다(다음 세션의 단일 진입점).
+카카오톡 대화방의 메시지를 모아 **요약**해서 받기 위한 시스템에서 **폰 쪽 수집기**(Android 전용 앱)다.
+대상 방은 **앱 설정에서 자유롭게 지정**한다(여러 방 가능, 특정 방에 고정돼 있지 않다).
 
-- 대상 방: **'아카라카북클럽'** (단일 방만 수집)
-- 앱 역할: 대상 방 화면을 **접근성으로 읽어** `{room, sender, text, ts}`를 Modal `/ingest`로 POST. 수집은 **읽기 전용**.
-- 요약/전달: 서버(Modal + Hermes)가 담당 — 이 앱과 분리됨.
-- (선택) **방 멘션 요약 발신**: 방에서 `@정상혁 …요약` 멘션이 보이면 Modal `kakao_summarize`(Hermes LLM)로
-  요약을 받아 **그 방으로 발신**한다. 읽기 전용을 깨는 부분이라 **기본 OFF**, 캘리브레이션 후 켠다. → §9.
+요약을 받는 방법은 두 가지다.
+- **Telegram에서**: "카카오톡 〈방이름〉 요약해줘" → 최근 대화를 한국어 요약으로 Telegram에 받는다.
+- **카톡 방 안에서**(선택): 방에서 `@내닉네임 …요약`이라고 하면 그 방에 요약을 답장한다(기본 OFF, §7).
 
----
+## 1. 모바일 앱과 Modal의 역할분담 · 통신
 
-## 1. 목표 / 요구사항
+카카오톡은 그룹 방 메시지를 서버가 직접 읽는 공식 API가 없다. 그래서 **메시지가 도착할 때 온라인인 내 폰**이
+화면을 읽어 모으고, 저장·요약은 **Modal(클라우드)**이 맡도록 역할을 나눈다.
 
-- 카카오톡 '아카라카북클럽' 방의 하루치 메시지를 모아, **Telegram**에서
-  "카카오톡 ABC방 요약해줘"라고 보내면 최근(기본 24h) 대화를 **한국어로 요약**해 Telegram으로 받는다.
-- 요약·전달은 다른 기능들처럼 **Modal**에서 실행한다.
-- **카카오톡은 읽기 전용**으로만 다룬다(발신 안 함 = 리스크 최소).
-- **조용한 방(알림 끔)도 수집**되어야 한다 → 알림이 아니라 **화면을 직접 읽는 접근성** 방식이 필수.
-- 1차 범위는 **온디맨드(Telegram 트리거)**. 매일 07:00 cron 자동요약은 충분히 테스트 후 추가(범위 밖).
+- **모바일 앱(이 디렉토리) — 수집만 담당**
+  - 접근성 서비스로, 내가 연 대상 방의 말풍선을 읽어 `{방, 보낸이, 본문, 시각}`을 Modal로 업로드한다.
+  - 카톡에는 **발신하지 않는다(읽기 전용)**. 예외는 선택 기능 "방 멘션 요약 발신"뿐이다(§7).
+  - 자동 스크롤은 하지 않는다 — **내가 방을 열어 보는 범위**만 모은다.
 
-## 2. 전체 통신 구조
+- **Modal(서버) + Hermes(LLM) — 저장·요약·전달 담당**
+  - 업로드된 메시지를 14일간 보관한다.
+  - 요약 요청이 오면 최근 메시지를 읽어 한국어로 요약한다. 요약 LLM은 Modal에 떠 있는 **Hermes를 재사용**하므로
+    별도 API 키가 필요 없다.
+  - 결과를 Telegram으로 돌려주거나, 카톡 방으로 답장한다.
 
 ```
-[폰: Kakao Collector 앱]  대상 방이 화면에 있을 때(사용자가 열어 스크롤) 접근성으로 말풍선 읽기
-   │  {room, sender, text, ts}
-   ▼  HTTPS POST  /ingest?token=...
-[Modal] kakao_ingest(POST)  → modal.Dict "kakao-collect"에 중복제거 적재
-        kakao_messages(GET) → since 기간 메시지 JSON 반환 (14일 보존, 읽을 때 정리)
-   ▲  curl GET /messages?token=...&since=1day
-[Modal: 기존 Telegram gateway = Hermes]
-        Telegram "카카오톡 ABC방 요약해줘" → skill 'kakao-room-summary'가
-        kakao_fetch.py로 /messages 조회 → 한국어 요약 → Telegram 답장
+[폰: Kakao Collector 앱]
+   │  대상 방을 열어 보는 동안 말풍선을 접근성으로 읽음
+   │  {방, 보낸이, 본문, 시각}
+   ▼  HTTPS POST (업로드)
+[Modal]  메시지 14일 보관  +  Hermes로 요약
+   ├─ ① Telegram "카카오톡 〈방〉 요약해줘"      → 요약을 Telegram으로
+   └─ ② 카톡 방 "@나 …요약"(선택, 기본 OFF)   → 요약을 그 방으로
 ```
 
-- 트리거·전달은 전부 **기존 Telegram gateway**로 처리(“Modal→폰 푸시 불가” 문제를 이렇게 우회).
-- 그래서 폰 앱은 **수집(업로드)만** 하면 되고, 요약 요청/응답은 신경 쓸 필요 없음.
+트리거와 전달은 Modal/Telegram이 처리하므로, **폰 앱은 "대상 방을 열어 두는 것"만 신경 쓰면 된다.**
 
-## 3. 추구하는 원리 / 설계 결정
+> 왜 폰이 필요한가: Modal은 평소 꺼져 있어(scale-to-zero) 카톡 메시지를 실시간으로 볼 수 없다. 또 알림이 꺼진(muted)
+> 방은 알림 기반 도구로는 못 잡는다. **화면을 직접 읽는 접근성**만이 조용한 방까지 볼 수 있어 폰이 수집 지점이 된다.
 
-- **공식 API 부재가 모든 것을 결정**: 카카오톡은 친구/그룹 방 메시지를 서버가 읽는 공식 API가 없다.
-  따라서 캡처는 비공식이며, **메시지 도착 시점에 온라인인 사용자 기기**가 필요하다.
-  Modal은 scale-to-zero라 캡처 지점이 될 수 없어 **폰 ↔ Modal 분리**가 강제됨.
-- **조용한 방 = 접근성만 가능**: 알림 기반(MacroDroid 알림/IFTTT/Tasker AutoNotification 등)은
-  muted 방에서 알림이 안 떠 못 잡는다. 화면을 읽는 **AccessibilityService**만이 조용한 방을 본다.
-- **전용 앱을 택한 이유**: "앱마켓 정식 + 조용한 방 + 무료"를 동시에 만족하는 길은 없었다
-  (Tasker+AutoInput=AutoInput 유료, MacroDroid=알림이라 muted 불가, AutoJs6=사이드로딩+범용엔진 신뢰 이슈).
-  **내가 짠 단일 목적 앱**은 범용 스크립트 엔진이 아니라 신뢰가 명확하고, 무료이며, 접근성으로 조용한 방도 된다.
-  (개인용이라 Play 스토어 미등록 + 내 서명 APK 사이드로딩으로 충분)
-- **읽기 전용 원칙**: 접근성 서비스를 `com.kakao.talk`에만 바인딩하고, 카톡에 발신하지 않는다.
-  LOCO 같은 비정상 클라이언트 신호가 없어 ToS 리스크가 가장 낮은 구성.
-- **“열면 캡처” 모델**: 자동 스크롤 없이, 사용자가 방을 열어 스크롤하는 동안 보이는 것만 수집(best-effort).
-  안 열면 수집 안 됨. 단순하고 안전(자동 조작 최소).
-- **`since`는 수집 시각(received_at) 기준**: 디바이스가 절대 시각을 신뢰성 있게 못 만들기 때문.
-  → 오늘 처음 스크롤한 오래된 메시지도 "오늘" 요약에 포함될 수 있음(= "지난 N일 **수집분**").
-- **중복 제거는 양쪽**: 앱(스크롤 중 재노출)과 서버(같은 sender+text+time → 1건) 모두에서 거른다.
+## 2. 서버(Modal) 준비
 
-## 4. 핵심 레퍼런스 값
+상위 Hermes 배포는 최상위 `README.md`를 따른다. 카카오 연동에 필요한 것만 정리하면:
 
-- 워크스페이스 `benelog`, Modal app `hermes-telegram-gateway`.
-- 디바이스 POST: `POST https://benelog--kakao-ingest.modal.run?token=<TOKEN>`
-  body `{"room":"아카라카북클럽","sender":"...","text":"...","ts":"오후 3:25"}`
-- 조회: `GET https://benelog--kakao-messages.modal.run?token=<TOKEN>&since=1day[&room=...]`
-- 저장소 `modal.Dict "kakao-collect"`, dedupe key = `room|sha1(room\x01sender\x01text\x01client_time)`, 보존 14일.
-- 대상 방: **'아카라카북클럽' 1개만**.
-- 토큰 위치: 로컬 `~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN` + Modal 시크릿 `hermes-modal-secrets` (**git에는 없음**).
-- Telegram DM chat_id: `7160469912`.
+1. 수집 토큰 시크릿 반영(레포 루트에서):
+   ```bash
+   KAKAO_COLLECTOR_TOKEN=<값> python3 scripts/create_modal_secret.py
+   ```
+2. 배포 후 엔드포인트 URL 확인:
+   ```bash
+   modal deploy modal_app.py
+   ```
+   출력의 `kakao-ingest`(수집) · `kakao-summarize`(방 멘션 요약) URL을 앱 설정에 넣는다.
+3. (선택) 연결 확인:
+   ```bash
+   curl -s "https://…kakao-messages.modal.run?token=<토큰>&since=1day"
+   ```
 
-## 5. 현재 상태 (2026-06-20)
+## 3. 앱 설정 (앱 화면에서 입력)
 
-- **서버측 완료**: 코드+단위테스트(25개 통과), `modal deploy` 완료, 엔드포인트 라이브,
-  토큰 시크릿 반영, 라이브검증(401/적재/중복제거/조회) 완료, 저장소 비워둠.
-  관련 코드: `scripts/kakao/collector_core.py`, `modal_app.py`(kakao_ingest/kakao_messages),
-  `scripts/cron/kakao_fetch.py`, `scripts/skills/knowledge-base/kakao-room-summary/SKILL.md`.
-  설계/계획: `docs/superpowers/specs|plans/2026-06-20-kakao-bookclub-summary-bot-*.md`.
-- **이 앱(폰 수집기)**: **빌드·설치·실기기 수집까지 검증 완료** (Pixel 10 Pro XL, Android 16).
-  실제 메시지가 올바른 보낸이·본문으로 Modal에 적재됨을 `/messages`로 확인.
-  - 설정 코드-외부화: 토큰/URL/방/ids/CALIBRATE를 앱 "설정"에서 편집(`SharedPreferences`).
-  - **실측 node id**(2026-06 카톡): 본문 `id/message`, 보낸이 **`id/nickname`**, 시각 `id/time`(희소), 방제목 `id/name`.
-    → `Config.kt` 기본값에 반영됨.
-  - **방 매칭 = 래치 방식**: 카톡은 방 제목을 '방 열 때'만 트리에 노출(스크롤 중엔 빠짐) → 입장 시 래치 ON,
-    '다른 방 제목'이 보일 때만 OFF. 반응팝업/IME 등 일시 윈도우엔 래치 유지.
-  - **보낸이 미상 메시지는 건너뜀**: 닉네임이 화면 밖이면 빈 sender로 중복 적재되므로 스킵.
-  - **내 메시지 vs 남 메시지 = 정렬로 판별**: 카톡은 내가 보낸 메시지엔 닉네임을 안 띄운다. 말풍선이
-    **우측 정렬(오른쪽 여백 < 왼쪽 여백)** 이면 내 메시지 → 보낸이를 설정의 "내 닉네임"으로,
-    좌측 정렬이면 남 메시지 → 그 닉네임으로 적는다. 텍스트·문서(PDF)카드 모두 검증됨.
-  - **URL 미리보기 카드는 수집 안 됨**: 미리보기는 `id/chat_forward`의 `id=null` 노드(제목/설명/도메인)라
-    `id/message`가 아니어서 자동 제외된다.
-  - **실기기 E2E 검증(2026-06-20)**: 내 메시지→`정상혁`, 남 메시지→실제 닉네임으로 적재 확인. 멀티룸(방별 태깅)·
-    로컬 SQLite 영속·재시작 후 재전송방지·방별 구분(나와의 채팅 미수집)까지 확인(ABC 100여 건 수집).
-  - **⚠ 카톡 접근성 출력 특성(중요·실측)**: 카톡이 값을 `text`가 아니라 **`contentDescription`** 에 두기도 한다.
-    ① 방 제목은 `toolbar_default_title_text`의 **cd**(스크롤 중에도 안정적, 방 식별의 1차 수단).
-    ② 말풍선 본문/닉네임도 `text`가 비고 **cd**에 옴 → 코드가 `text 우선, 없으면 cd`(`nodeValue`)로 읽는다.
-    ③ 말풍선 RecyclerView가 `rootInActiveWindow`가 아닌 **다른 윈도우**에 있을 수 있어 `getWindows()` 전체를 훑는다.
-    ④ 답장 인용은 `'Replied/Original message …'`로 와서 중복이라 건너뛴다. (카톡 UI 업데이트 시 재점검 지점.)
-- 참고로 남겨둔 다른 디바이스 방식 가이드: `scripts/tasker/README.md`(Tasker+AutoInput),
-  `scripts/autojs/README.md`(AutoJs6) — 채택은 이 전용 앱.
+앱 실행 → **"설정"** 입력 후 **"설정 저장"**. 값은 폰에만 저장된다(git에 안 남음).
 
----
+- **토큰** — 위 `KAKAO_COLLECTOR_TOKEN`과 같은 값.
+- **Modal Ingest URL** — 위 배포 출력의 `kakao-ingest` URL(기본값 채워져 있음).
+- **대상 방 목록** — 요약하고 싶은 **방 제목을 한 줄에 하나씩**(여러 방 가능). 열린 방이 목록에 있으면 그 방으로
+  태그해 수집한다.
+- **내 닉네임** — 내가 보낸 메시지엔 카톡이 닉네임을 안 띄우므로, 그 메시지의 보낸이로 쓸 값(예: `정상혁`).
+  **비우면 내 메시지는 수집 안 함.**
+- **각종 id(본문/보낸이/시각/방제목)** — 기본값이 채워져 있다. 카톡 UI가 바뀌어 수집이 안 되면 §6 캘리브레이션으로
+  다시 맞춘다.
 
-## 6. 앱 빌드 / Calibration / 설치 / 수집
+## 4. 빌드 / 설치
 
-요구사항: JDK 17, Android SDK(platform-34, build-tools 34.0.0), Android 8.0(API 26)+ 기기.
+요구사항: JDK 17, Android SDK(platform-34, build-tools 34.0.0), 안드로이드 8.0+ 기기.
 
-### 0) 빌드 환경 (이 머신에선 이미 구성됨)
-- Android SDK: `~/Android/Sdk` (cmdline-tools + `platform-tools` + `platforms;android-34` + `build-tools;34.0.0`).
-  `app` 모듈 기준 `local.properties`의 `sdk.dir`가 이를 가리킴(미커밋).
-- JDK 17: `~/.sdkman/candidates/java/17.0.16-tem` (전역 기본 JDK는 25라 빌드 시 JDK 17 지정 필요).
-- Gradle wrapper 8.7: `gradle-wrapper.jar`은 미커밋이라 최초 1회 생성됨(`gradle wrapper --gradle-version 8.7`).
-- 새 머신이라면: cmdline-tools 받아 `sdkmanager`로 위 패키지 설치 → `local.properties`에 `sdk.dir` → wrapper 생성.
-
-### 1) 설정 (앱 화면에서 입력 — 코드 수정 불필요)
-앱 실행 → **"설정"** 섹션에서 입력 후 **"설정 저장"**:
-- **토큰** = `~/.hermes/.env`의 `KAKAO_COLLECTOR_TOKEN`과 동일 값. (SharedPreferences에 저장 → git에 안 남음.)
-- **Modal Ingest URL** = 기본값 채워져 있음(필요시 수정).
-- **대상 방 목록** = 방 제목을 한 줄에 하나씩 입력(여러 방 가능). 서비스는 열린 방이 목록에 있으면 그 방 이름을 태그해 전송.
-- **내 닉네임** = 내가 보낸 메시지엔 카톡이 닉네임을 안 띄우므로, 내 메시지의 보낸이로 채울 값(예: `정상혁`).
-  멀티프로필로 보는 사람마다 다르게 보여도 수집은 이 값으로 고정된다. **비워두면 내 메시지는 수집 안 됨.**
-- **본문/보낸이/시각/방제목 id** = 아래 Calibration으로 확정.
-- **CALIBRATE** 체크박스 = 켜면 수집 대신 화면 노드 id를 Logcat에 덤프.
-
-> `Config.kt`는 이제 "기본값(폴백)"만 보유. 설정 화면에서 한 번 저장하면 그 값이 우선한다.
-> 실값(토큰 등)을 코드에 넣을 필요가 없다.
-
-### 2) Calibration (resource-id 확정 — 최초 1회 필수, 앱 재빌드 불필요)
-1. 앱 "설정"에서 **CALIBRATE 체크 → 저장**.
-2. 설정 → 접근성 → **Kakao Collector** 켜기(앱의 "접근성 설정 열기" 버튼).
-3. 카톡에서 **대상 방을 연다**.
-4. `adb logcat -s KakaoCollector` → `id=... text=...` 줄 확인.
-5. 화면과 대조해 본문/보낸이/시각/방제목 id를 앱 "설정"의 각 필드에 입력.
-6. **CALIBRATE 해제 → 저장**.
-
-### 3) 빌드 / 설치
-도우미 스크립트(권장 — 환경변수 자동 지정):
+도우미 스크립트(`kakao-collector/`에서 실행):
 ```bash
-cd kakao-collector
-./device_check.sh           # 폰 USB/디버깅 연결 진단 (no permissions·unauthorized 등 원인 안내)
-./setup_udev.sh             # (Linux 최초 1회) adb udev 규칙 설치 — 'no permissions' 해결, sudo 필요
-./install.sh                # 빌드+설치 (= assembleDebug + installDebug), JDK 17 자동 사용
-./install.sh assembleDebug  # 설치 없이 APK만
-./enable_service.sh         # 접근성 서비스 adb로 켜기 ('제한된 설정' 차단 우회, 재부팅 후 재활성)
-./dump_db.sh                # 로컬 수집 DB 조회: 방별 건수·미전송·최근 행
+./device_check.sh      # 폰 USB/디버깅 연결 진단
+./setup_udev.sh        # (Linux 최초 1회) adb 'no permissions' 해결, sudo 필요
+./install.sh           # 빌드 + 설치 (JDK 17 자동 사용)
+./enable_service.sh    # 접근성 서비스 adb로 켜기
+./dump_db.sh           # 폰 로컬 수집 DB 조회(방별 건수·미전송·최근 행)
 ```
 
-> ⚠ **접근성 켜기가 막힐 때** (Android 13+): 사이드로딩 앱은 설정 UI에서 접근성 토글이 "제한된 설정"으로
-> 막힌다. 두 가지 해법 — ① 설정 → 앱 → Kakao Collector → ⋮ → **"제한된 설정 허용"** 후 접근성에서 켜기,
-> 또는 ② **`./enable_service.sh`** (adb로 직접 등록, 가장 확실). 재설치/재부팅 후 안 켜져 있으면 ②를 재실행.
-수동으로 한다면:
-```bash
-export JAVA_HOME="$HOME/.sdkman/candidates/java/17.0.16-tem"   # ★ 빌드는 JDK 17
-./gradlew assembleDebug     # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew installDebug      # 폰 USB 연결(adb) 시 디바이스에 설치
-```
+> 흔한 실패: ① `What went wrong: 25` → 전역 JDK가 25라서. `./install.sh`가 JDK 17을 자동 지정하니 그대로 쓰면 된다.
+> ② `no permissions (missing udev rules)` → `./setup_udev.sh` 후 폰 재연결.
 
-> ⚠ **흔한 실패 2가지**
-> 1. **`What went wrong: 25`** — 전역 기본 JDK가 25라 Gradle 8.7/AGP 8.5.2가 못 돎. → `JAVA_HOME`을 JDK 17로
->    지정하거나 `./install.sh` 사용(자동 처리).
-> 2. **`no permissions (missing udev rules)`** — 리눅스에서 adb가 USB 노드 접근 불가. → `./setup_udev.sh` 후 폰 재연결.
+## 5. 접근성 켜기 + 수집
 
-(디버그 서명이면 개인 사이드로딩 충분. 빌드·설치 검증 완료 — Pixel 10 Pro XL에 설치 확인됨.)
+1. 설정 → 접근성 → **Kakao Collector** 켜기(앱의 "접근성 설정 열기" 버튼).
+   - Android 13+에서 토글이 "제한된 설정"으로 막히면: 설정 → 앱 → Kakao Collector → ⋮ → **"제한된 설정 허용"**,
+     또는 `./enable_service.sh`(가장 확실, 재부팅 후 안 켜져 있으면 재실행).
+2. 카톡에서 **대상 방을 열고 위로 스크롤** → 보이는 메시지가 자동으로 업로드된다.
+3. 빠른 연결 확인은 앱의 **"테스트 메시지 전송"** 버튼 → `curl …kakao-messages…`로 확인.
+4. Telegram 봇에게 **"카카오톡 〈방이름〉 요약해줘"**.
 
-### 4) 수집 / 확인
-1. 접근성 ON 상태에서 **대상 방을 열고 위로 스크롤**.
-2. 보이는 메시지가 자동으로 `/ingest`로 전송됨.
-3. 확인: `curl -s "https://benelog--kakao-messages.modal.run?token=<토큰>&since=1day"`.
-4. 연결만 빠르게 보려면 앱의 **"테스트 메시지 전송"** → `/messages` 확인 → 정리 `modal dict clear kakao-collect -y`.
-5. E2E: Telegram 봇에게 "카카오톡 ABC방 요약해줘".
+## 6. 캘리브레이션 (필요할 때만)
 
-## 7. 동작 / 한계
-
-- 읽기 전용(서비스가 `com.kakao.talk`로만 제한).
-- "열면 캡처": 방 열어 스크롤한 범위만 수집(v1은 자동 스크롤 없음).
-- 사진/스티커는 `[사진]` 등 텍스트로만.
-- 연속 메시지는 직전 보낸이 승계.
-- 카톡 UI 업데이트로 id가 바뀌면 Calibration 재실행.
-- 중복은 클라이언트+서버 양쪽 제거.
-- 수집 내역은 폰 로컬 SQLite(`collector.db`)에 영속 저장되며(보낸이/본문/방/시각/전송성공여부/수집시각),
-  이 DB가 중복제거의 단일 출처라 **앱/서비스를 재시작해도 같은 메시지를 다시 전송하지 않는다**(서버는 그대로 멀티룸).
-  오래된 행은 30일 후 정리.
-
-## 8. 구성 파일
-```
-kakao-collector/
-  settings.gradle.kts · build.gradle.kts · gradle.properties
-  gradle/wrapper/gradle-wrapper.properties
-  app/
-    build.gradle.kts · proguard-rules.pro
-    src/main/AndroidManifest.xml
-    src/main/java/net/benelog/kakaocollector/
-      Config.kt                 설정 "기본값"(폴백). 실값은 Settings에서.
-      Settings.kt               SharedPreferences 기반 런타임 설정(토큰/URL/방/ids/요약발신/CALIBRATE)
-      CollectorApp.kt           Application — 시작 시 Settings 초기화
-      KakaoCollectorService.kt  접근성 수집 서비스(핵심) — 수집 + 멘션 요약 트리거·발신
-      SummaryTrigger.kt         멘션+요약 명령 판정(순수)
-      Summarizer.kt             /summarize POST — Hermes LLM 요약 요청(서비스/액티비티 공용)
-      Poster.kt                 /ingest POST — Settings.token/ingestUrl 사용
-      MainActivity.kt           상태/접근성설정/설정편집/연결·요약 테스트 화면
-    src/main/res/...            레이아웃·문자열·테마·접근성설정·아이콘
-  TODO.md                       다음 세션 할 일
-```
-
-명령어 메모(서버측, 참고): 테스트 `python3 tests/test_*.py`, 배포 `modal deploy modal_app.py`,
-시크릿 재생성 `python3 scripts/create_modal_secret.py`, 저장소 비우기 `modal dict clear kakao-collect -y`.
-
----
-
-## 9. 방 멘션 요약 (발신) — 선택 기능
-
-방에서 누군가 **`@정상혁`을 멘션하며 "요약해줘"** 라고 하면, 그 방의 최근 대화를 요약해 **그 방으로 답장**한다.
-Telegram을 거치지 않고 카톡 방 안에서 끝난다. 요약 LLM은 새 키 없이 **Modal의 Hermes**(`hermes -z`)를 재사용한다.
-
-### 흐름
-두 트리거 경로가 같은 요약 로직(`triggerSummary`, 방별 60초 쿨다운으로 이중 발신 방지)을 공유한다.
-
-**A. 화면(scrape) 경로 — 방이 열려 있을 때**
-1. 방의 **맨 아래(최신) 새 메시지**가 멘션 키워드+요약 키워드를 담고 있으면 트리거.
-   (스크롤 백필로 올라온 옛 명령, 방 여는 순간의 옛 명령은 발화 안 함 — `CONTENT_CHANGED`+새 메시지일 때만.)
-2. Modal `kakao_summarize`로 `{room, command}` POST → Hermes가 요약문 생성 → 반환.
-3. **발신 직전 현재 방==트리거 방을 재확인**하고, 입력창에 `ACTION_SET_TEXT`(마커+요약) → 전송버튼 클릭.
-
-**B. 알림 경로 — 방이 닫혀 있어도 (`typeNotificationStateChanged`)**
-1. 카톡 알림 본문이 멘션+요약 키워드를 담고, 알림 제목이 대상 방이면 트리거(같은 알림은 1회만).
-2. Modal `kakao_summarize` 호출(위와 동일).
-3. 알림의 **'답장' 액션(RemoteInput)** 으로 그 방에 직접 답장 → **방을 열 필요가 없다**(없으면 열린 방 입력창으로 폴백).
-   - 단, 수집은 "열면 캡처"라 안 열어본 방은 요약할 내용이 적을 수 있다(없으면 "수집된 메시지 없음" 안내). muted 방은 알림이 없어 이 경로로 안 잡힌다.
-
-### 설정 (앱 "방 멘션 요약" 섹션)
-- **Modal Summarize URL** = 기본값 채워져 있음(`modal deploy` 출력의 `kakao-summarize` URL과 일치하는지 확인).
-- **멘션 키워드** = 메시지에 이 문자열이 있으면 "나를 부른 것". 비우면 **내 닉네임**으로 폴백(예: `정상혁`).
-- **요약 키워드** = 기본 `요약`. 멘션 키워드와 함께 있어야 트리거.
-- **입력창 id / 전송버튼 id** = 아래 캘리브레이션으로 확정. 비면 발신 안 함.
-- **자동발신 체크박스** = **기본 OFF**. 캘리브레이션 후 켜야 실제로 방에 발신한다.
-
-### 캘리브레이션 (입력창/전송버튼 id — 1회)
+기본 id 값이 이미 들어 있어 보통은 건너뛴다. **카톡 업데이트로 수집이 멈추면** 한 번 다시 맞춘다.
 1. 앱 "설정"에서 **CALIBRATE 체크 → 저장**, 접근성 ON.
-2. 대상 방을 열고 **입력창을 탭**한 뒤 `adb logcat -s KakaoCollector`에서 입력창 EditText의 `id=...` 확인.
-3. 무언가 입력해 **전송 버튼이 나타난 상태**에서 전송 버튼의 `id=...` 확인.
-4. 두 id를 앱 "입력창 id"/"전송버튼 id"에 입력, **CALIBRATE 해제 → 저장**.
-   (실측 2026-06 카톡 = 코드 기본값: 입력창 `id/message_edit_text`(MultiAutoCompleteTextView),
-   전송 `id/send_button_layout`. UI 업데이트로 바뀌면 위 절차로 재캘리브레이션.)
-   > 참고: `uiautomator dump`(adb)로 화면 XML을 받아 resource-id를 찾는 방법이 가장 깔끔하다 —
-   > 입력칸+전송버튼이 동시에 보이는 상태에서 `adb shell uiautomator dump` → XML에서 위 id 확인.
+2. 카톡에서 대상 방을 연다.
+3. `adb logcat -s KakaoCollector`의 `id=… text=…` 줄을 화면과 대조.
+4. 본문/보낸이/시각/방제목 id를 앱 설정에 입력.
+5. **CALIBRATE 해제 → 저장.**
 
-### 안전장치
-- **자동발신 기본 OFF** — 켜기 전까지 어떤 방에도 발신하지 않는다.
-- **루프 방지** — 봇 발신엔 마커(`🤖`) 접두, 마커 든 메시지는 트리거에서 제외.
-- **오발신 방지** — 발신 직전 방 일치 재확인, 방별 동시요약 1건, 최신(맨 아래) 새 메시지만 명령 인정.
-- 트리거는 **누구나** 가능(요청 사양). 특정인만으로 좁히려면 추후 멘션 키워드/화이트리스트 확장.
+(방 멘션 요약 발신을 쓸 땐 입력창·전송버튼 id도 같은 방식으로 맞춘다 — §7.)
 
-### 테스트
-- **발신과 분리 검증**: 앱의 **"지금 요약 테스트"** 버튼 → 첫 방 요약을 받아 **앱 화면에 표시**(방에 발신 안 함).
-  Modal/Hermes 경로가 정상인지 먼저 확인한 뒤 자동발신을 켠다.
-- **E2E**: 자동발신 ON → 방에서 "@정상혁 요약해줘"(또는 "@정상혁 3일치 요약") → 그 방에 요약 답장.
+## 7. (선택) 카톡 방에서 바로 요약 받기 — 멘션 요약 발신
+
+방에서 누군가 **`@내닉네임`을 멘션하며 "요약"**이라고 하면, 그 방의 최근 대화를 요약해 **그 방으로 답장**한다.
+Telegram을 거치지 않는다. 카톡에 **발신**하는 유일한 기능이라 **기본 OFF**이고, 켜기 전에 입력창·전송버튼 id를
+맞춰야 한다.
+
+설정(앱 "방 멘션 요약" 섹션):
+- **Modal Summarize URL** — 배포 출력의 `kakao-summarize` URL.
+- **멘션 키워드** — 이 문자열이 메시지에 있으면 "나를 부른 것". 비우면 **내 닉네임**으로 폴백.
+- **요약 키워드** — 기본 `요약`. 멘션 키워드와 함께 있어야 트리거.
+- **입력창 id / 전송버튼 id** — 캘리브레이션으로 확정(§6 방식). 비면 발신 안 함.
+- **자동발신 체크박스** — **기본 OFF**. 켜야 실제로 방에 답장한다.
+
+켜기 전 검증: 앱의 **"지금 요약 테스트"** 버튼 → 첫 방의 요약을 **앱 화면에 표시만**(방엔 발신 안 함).
+정상이면 자동발신을 켠다.
+
+안전장치:
+- 자동발신 기본 OFF, 봇 발신엔 마커(`🤖`)가 붙어 자기 메시지로 다시 트리거되지 않는다.
+- 발신 직전 방 일치 재확인, 방별 동시 요약 1건, 가장 최신 새 메시지만 명령으로 인정.
+- "오늘 / 3일치 / 이번주" 같은 기간 표현을 명령문에서 읽어 요약 범위를 정한다.
+
+## 8. 동작 / 한계
+
+- **읽기 전용**(§7 켤 때만 예외). 접근성 서비스는 카카오톡에만 바인딩된다.
+- **"열면 캡처"** — 내가 방을 열어 스크롤한 범위만 모은다. 안 열면 그 기간은 빈다.
+- 사진/스티커는 `[사진]`처럼 텍스트로만 남는다. URL 미리보기 카드는 수집하지 않는다.
+- 요약 기간(`since`)은 메시지 전송 시각이 아니라 **수집 시각** 기준이다(폰이 절대 시각을 신뢰성 있게 못 만들기 때문).
+  그래서 오늘 처음 스크롤한 오래된 메시지도 "오늘" 요약에 들어올 수 있다.
+- 같은 메시지는 폰·서버 양쪽에서 중복 제거된다. 수집 내역은 폰 로컬 DB에 남아, 앱을 재시작해도 다시 전송하지
+  않는다(오래된 행은 30일 후 정리).
+- muted(알림 끔) 방도 화면만 열면 수집된다. 단 §7의 "알림으로 답장" 경로는 알림이 없어 동작하지 않는다.
+
+---
+
+다음 세션 할 일: `TODO.md`.

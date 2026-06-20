@@ -254,53 +254,7 @@ modal run modal_app.py::commit_skills
 
 `prepare_runtime.py` 변경이 반영되지 않으면 `HERMES_MODAL_OVERWRITE_CONFIG=1`이 secret/env에 들어가 있는지 확인하세요. `modal_app.py`의 `common_env` 기본값이지만 secret으로 덮어써졌을 수 있습니다.
 
-## 카카오톡 북클럽 대화 요약
+## 카카오톡 연동
 
-Telegram에서 "카카오톡 ABC방 요약해줘"라고 보내면 카카오톡 '아카라카북클럽' 방의
-최근 메시지를 한국어로 요약해 Telegram으로 돌려준다. 설계: `docs/superpowers/specs/2026-06-20-kakao-bookclub-summary-bot-design.md`.
-
-구성:
-- 디바이스: **전용 Android 앱 `kakao-collector/`** (AccessibilityService)가 대상 방을 열 때
-  메시지를 읽어 Modal `kakao-ingest`로 POST한다(읽기 전용, 조용한 방도 동작). 전체 구조·요구사항·
-  원리·빌드 가이드: `kakao-collector/README.md`, 다음 할 일: `kakao-collector/TODO.md`.
-  (검토했던 대안 가이드: `scripts/tasker/README.md`(Tasker+AutoInput), `scripts/autojs/README.md`(AutoJs6))
-- Modal: `kakao_ingest`(POST)/`kakao_messages`(GET) 엔드포인트가 `modal.Dict`에
-  14일 보존으로 적재/조회한다. 인증은 시크릿 `KAKAO_COLLECTOR_TOKEN`.
-- Hermes: skill `kakao-room-summary`가 `~/.hermes/scripts/kakao_fetch.py`로 조회해
-  요약한 뒤 Telegram으로 답장한다.
-
-cron 자동요약(매일 07:00)은 충분히 테스트한 뒤 추가한다(현재 범위 밖).
-
-기간(`since`)은 메시지 전송 시각이 아니라 **수집 시각**(`received_at`, 서버 스탬프) 기준이다.
-디바이스가 절대 시각을 신뢰성 있게 못 만들기 때문이며, "열면 캡처" 모델상 오늘 처음 스크롤한
-오래된 메시지는 "오늘" 요약에도 포함될 수 있다(= 지난 N일 수집분).
-
-### 배포/테스트
-1. 토큰 시크릿 반영: `KAKAO_COLLECTOR_TOKEN=<값> python scripts/create_modal_secret.py`
-2. 배포: `modal deploy modal_app.py` → 출력의 `kakao-ingest`/`kakao-messages` URL 확인.
-   `modal_app.py`의 `KAKAO_MESSAGES_URL`이 다르면 교정 후 재배포.
-3. 엔드포인트 검증: `scripts/autojs/README.md`의 curl로 적재/조회 확인.
-4. 디바이스 셋업: `scripts/autojs/README.md`대로 폰에 스크립트 설치·calibration·수집.
-5. E2E: Telegram에 "카카오톡 ABC방 요약해줘" → 한국어 요약 답장 확인.
-
-## 카카오톡 방 멘션 요약(그 방으로 발신)
-
-Telegram이 아니라 **카카오톡 방 안에서** 누군가 `@정상혁`을 멘션하며 "요약해줘"라고 하면, 그 방의
-최근 대화를 요약해 **그 방으로 답장**한다. 설계: `docs/superpowers/specs/2026-06-20-kakao-mention-summary-bot-design.md`.
-
-- 요약 LLM: 새 API 키 없이 **Modal에 떠 있는 Hermes의 LLM**을 재사용한다. 신규 엔드포인트
-  `kakao_summarize`(POST)가 `kakao_dict`에서 해당 방 최근 메시지를 읽어 `hermes -z`(one-shot,
-  최종 텍스트만 stdout)로 요약문을 만들어 반환한다. 인증은 같은 `KAKAO_COLLECTOR_TOKEN`.
-- 트리거·발신: **앱 `kakao-collector/`**가 방의 '맨 아래(최신) 새 메시지'에서 멘션+요약 키워드를
-  감지하면 `kakao_summarize`를 호출하고, 받은 요약을 접근성으로 입력창에 넣어 전송한다.
-  **읽기 전용 원칙을 깨는 발신부**라 기본 OFF이며, 입력창/전송버튼 id 캘리브레이션 후 앱에서 켠다.
-  자세한 설정·안전장치: `kakao-collector/README.md`.
-- 기간(`since`)은 명령문에서 추출한다("3일치"→3day, "오늘/언급없음"→1day, "이번주"→7day).
-  실제 조회 윈도우는 위와 같이 **수집 시각** 기준이다.
-
-배포: `modal deploy modal_app.py` → 출력의 `kakao-summarize` URL 확인 후 앱 설정의 Summarize URL에 반영.
-검증: `curl -X POST "$URL?token=<토큰>" -H 'Content-Type: application/json' -d '{"room":"아카라카북클럽","command":"오늘 요약해줘"}'`.
-
-> 주의(Codex OAuth 공유): `gateway`/`cron_tick`처럼 `kakao_summarize`도 같은 `auth.json`(Codex OAuth)을
-> 쓰므로 동시 실행 시 토큰 refresh 경합 가능성이 있다(README "Codex OAuth refresh token..." 항목 참고).
-> `max_containers=1`로 요약 동시 실행은 1건으로 제한했다. 잦으면 API key provider로 전환.
+카카오톡 대화방 메시지 수집·요약(Telegram 요약, 방 멘션 요약 발신 포함)은 별도 문서를 참고하세요:
+[`kakao-collector/README.md`](kakao-collector/README.md).
