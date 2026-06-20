@@ -19,6 +19,7 @@ class KakaoCollectorService : AccessibilityService() {
         const val TAG = "KakaoCollector"
         private const val MIN_INTERVAL_MS = 500L
         private const val SEEN_CAP = 3000
+        private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30일
     }
 
     private val seen = LinkedHashSet<String>()
@@ -27,10 +28,14 @@ class KakaoCollectorService : AccessibilityService() {
     // 카톡은 방 제목 노드를 '방을 열 때'만 트리에 노출하고 스크롤 중엔 빼버린다.
     // 그래서 매번 제목으로 판별하면 스크롤 중 수집이 끊긴다 → 방 입장 여부를 래치로 기억한다.
     private var inTargetRoom = false
+    private var activeRoom = ""
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         Settings.init(this) // Application에서 이미 했지만 방어적으로(멱등).
+        Uploader.init(this, RETENTION_MS)
+        // 재시작해도 최근 수집분을 '이미 봄'으로 인식 → 재전송 방지.
+        seen.addAll(Uploader.recentKeys(SEEN_CAP))
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -65,24 +70,29 @@ class KakaoCollectorService : AccessibilityService() {
             // 화면이 바뀌었는데(WINDOW_STATE_CHANGED) 제목이 안 보이면 방을 떠난 것 → latch OFF.
             // 래치 갱신은 화면전환 또는 아직 미입장일 때만(스크롤마다 재탐색하면 비싸고, 방 안에선 제목이 안 보임).
             if (windowChanged || !inTargetRoom) {
+                val targets = Settings.roomNamesList()
                 val title = visibleRoomTitle(root) // 제목 노드(id/name)가 보이면 그 텍스트, 없으면 null
+                val matched = title?.let { RoomMatch.match(it, targets) }
                 when {
-                    // 대상 방 제목이 보임 → 입장 확정.
-                    title != null && title.contains(Settings.roomName) -> {
-                        if (!inTargetRoom) Log.i(TAG, "entered target room")
+                    matched != null -> {
+                        if (!inTargetRoom || activeRoom != matched) Log.i(TAG, "entered target room: $matched")
                         inTargetRoom = true
+                        activeRoom = matched
                     }
-                    // '다른 방' 제목이 보임 → 방을 떠난 것.
+                    // 제목이 보이는데 대상이 아님 → 다른 방으로 나간 것.
                     title != null -> inTargetRoom = false
-                    // 제목 노드가 아예 안 보임(반응팝업/IME 등 일시 윈도우): 래치 유지.
-                    //   단, 아직 미입장 상태라면 방이름 텍스트 폭넓게 한 번 더 탐색(첫 진입 보조).
-                    !inTargetRoom && roomNameVisible(root) -> {
-                        Log.i(TAG, "entered target room")
-                        inTargetRoom = true
+                    // 제목 노드가 안 보임(일시 윈도우): 미입장 상태면 모든 윈도우에서 대상 이름 한 번 더 탐색.
+                    !inTargetRoom -> {
+                        val byWindow = matchedRoomInAnyWindow(root, targets)
+                        if (byWindow != null) {
+                            Log.i(TAG, "entered target room: $byWindow")
+                            inTargetRoom = true
+                            activeRoom = byWindow
+                        }
                     }
                 }
             }
-            if (inTargetRoom) scrape(root)
+            if (inTargetRoom && activeRoom.isNotEmpty()) scrape(root)
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
         }
@@ -112,37 +122,37 @@ class KakaoCollectorService : AccessibilityService() {
         return null
     }
 
-    private fun roomNameVisible(activeRoot: AccessibilityNodeInfo): Boolean {
-        // 방 제목은 보통 활성 윈도우(방 열 때)에 있다 — 여기부터 확인.
-        if (treeContainsRoomName(activeRoot)) return true
-        // 보조: 접근성으로 접근 가능한 다른 윈도우들도 스캔(있을 때만).
-        val wins = windows ?: return false
+    /** 어느 윈도우든 대상 방 제목이 보이면 그 대상(정규형)을 반환, 없으면 null. */
+    private fun matchedRoomInAnyWindow(activeRoot: AccessibilityNodeInfo, targets: List<String>): String? {
+        matchedRoomInTree(activeRoot, targets)?.let { return it }
+        val wins = windows ?: return null
         for (w in wins) {
             val r = w.root ?: continue
-            if (r != activeRoot && treeContainsRoomName(r)) return true
+            if (r != activeRoot) matchedRoomInTree(r, targets)?.let { return it }
         }
-        return false
+        return null
     }
 
-    private fun treeContainsRoomName(root: AccessibilityNodeInfo): Boolean {
-        val roomName = Settings.roomName
+    private fun matchedRoomInTree(root: AccessibilityNodeInfo, targets: List<String>): String? {
         val titleId = Settings.titleId
         if (titleId.isNotEmpty()) {
             for (t in root.findAccessibilityNodeInfosByViewId(titleId)) {
                 val txt = t.text?.toString() ?: continue
-                if (txt.contains(roomName)) return true
+                RoomMatch.match(txt, targets)?.let { return it }
             }
         }
-        // 제목 노드 id가 안 맞아도, 트리 어딘가에 방 이름 텍스트가 있으면 인정.
-        var found = false
+        // 제목 노드 id가 안 맞아도, 트리 어딘가에 대상 이름과 정확히 같은 텍스트가 있으면 인정.
+        var found: String? = null
         walk(root) { n ->
-            if (!found && n.text?.toString() == roomName) found = true
+            if (found == null) {
+                val txt = n.text?.toString()
+                if (txt != null) found = targets.firstOrNull { it.isNotEmpty() && txt == it }
+            }
         }
         return found
     }
 
     private fun scrape(root: AccessibilityNodeInfo) {
-        val roomName = Settings.roomName
         val ownName = Settings.ownName
         val nameId = Settings.nameId
         val timeId = Settings.timeId
@@ -170,17 +180,10 @@ class KakaoCollectorService : AccessibilityService() {
                     val sender = if ((screenW - rect.right) < rect.left) ownName else curSender
                     // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
                     if (sender.isEmpty()) continue
-                    // 서버 message_key와 동일하게 \u0001 구분자로 필드 경계를 명확히 한다.
-                    val key = sender + "\u0001" + txt + "\u0001" + curTime
-                    if (remember(key)) {
+                    val key = DedupeKey.of(activeRoom, sender, txt, curTime)
+                    if (firstSeen(key)) {
                         newCount++
-                        Poster.post(
-                            JSONObject()
-                                .put("room", roomName)
-                                .put("sender", sender)
-                                .put("text", txt)
-                                .put("ts", curTime),
-                        )
+                        Uploader.submit(activeRoom, sender, txt, curTime)
                     }
                 }
             }
@@ -189,7 +192,7 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     /** 처음 보는 key면 기억하고 true. 용량 상한 초과 시 가장 오래된 것부터 제거. */
-    private fun remember(key: String): Boolean {
+    private fun firstSeen(key: String): Boolean {
         if (seen.contains(key)) return false
         seen.add(key)
         if (seen.size > SEEN_CAP) {

@@ -15,6 +15,7 @@ object Settings {
     private const val KEY_TOKEN = "token"
     private const val KEY_INGEST_URL = "ingest_url"
     private const val KEY_ROOM_NAME = "room_name"
+    private const val KEY_ROOM_NAMES = "room_names"
     private const val KEY_OWN_NAME = "own_name"
     private const val KEY_MSG_ID = "msg_id"
     private const val KEY_NAME_ID = "name_id"
@@ -44,9 +45,20 @@ object Settings {
         get() = get(KEY_INGEST_URL, Config.INGEST_URL)
         set(v) = prefs.edit().putString(KEY_INGEST_URL, v).apply()
 
-    var roomName: String
-        get() = get(KEY_ROOM_NAME, Config.ROOM_NAME)
-        set(v) = prefs.edit().putString(KEY_ROOM_NAME, v).apply()
+    /** 대상 방 목록 raw 문자열(줄바꿈 구분). 미저장이면 기존 단일 room_name으로 폴백. */
+    var roomNamesRaw: String
+        get() = if (prefs.contains(KEY_ROOM_NAMES)) {
+            prefs.getString(KEY_ROOM_NAMES, "") ?: ""
+        } else {
+            get(KEY_ROOM_NAME, Config.ROOM_NAME)
+        }
+        set(v) = prefs.edit().putString(KEY_ROOM_NAMES, v).apply()
+
+    /** 대상 방 제목 목록. */
+    fun roomNamesList(): List<String> = RoomMatch.parse(roomNamesRaw)
+
+    /** 테스트 전송·표시에 쓸 대표(첫) 방. */
+    fun firstRoom(): String = roomNamesList().firstOrNull() ?: Config.ROOM_NAME
 
     /** 내 카톡 닉네임. 내 메시지엔 닉네임이 안 떠서, 보낸이로 채울 값. */
     var ownName: String
@@ -81,7 +93,7 @@ object Settings {
     fun save(
         token: String,
         ingestUrl: String,
-        roomName: String,
+        roomNames: String,
         ownName: String,
         msgId: String,
         nameId: String,
@@ -92,7 +104,7 @@ object Settings {
         prefs.edit()
             .putString(KEY_TOKEN, token.trim())
             .putString(KEY_INGEST_URL, ingestUrl.trim())
-            .putString(KEY_ROOM_NAME, roomName.trim())
+            .putString(KEY_ROOM_NAMES, roomNames.trim())
             .putString(KEY_OWN_NAME, ownName.trim())
             .putString(KEY_MSG_ID, msgId.trim())
             .putString(KEY_NAME_ID, nameId.trim())

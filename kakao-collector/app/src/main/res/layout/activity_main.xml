@@ -74,13 +74,16 @@
 
         <TextView
             style="@style/FieldLabel"
-            android:text="방 이름" />
+            android:text="대상 방 목록 (한 줄에 방 제목 하나)" />
 
         <EditText
             android:id="@+id/etRoom"
             style="@style/FieldInput"
-            android:hint="아카라카북클럽"
-            android:inputType="text" />
+            android:hint="ABC(아카라카북클럽)"
+            android:gravity="top"
+            android:inputType="textMultiLine"
+            android:minLines="2"
+            android:singleLine="false" />
 
         <TextView
             style="@style/FieldLabel"

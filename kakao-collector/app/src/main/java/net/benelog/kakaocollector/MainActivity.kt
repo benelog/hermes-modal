@@ -51,13 +51,7 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<Button>(R.id.btnTest).setOnClickListener {
             saveForm() // 화면에 입력한 값으로 바로 테스트되도록 먼저 저장.
-            Poster.post(
-                JSONObject()
-                    .put("room", Settings.roomName)
-                    .put("sender", "앱테스트")
-                    .put("text", "전용앱 연결 테스트")
-                    .put("ts", ""),
-            )
+            Uploader.testPost(Settings.firstRoom(), "앱테스트", "전용앱 연결 테스트")
             findViewById<TextView>(R.id.status).text =
                 "테스트 메시지 전송함 → Modal /messages 로 확인하세요."
         }
@@ -73,7 +67,7 @@ class MainActivity : AppCompatActivity() {
     private fun populateForm() {
         etToken.setText(if (Settings.isTokenSet()) Settings.token else "")
         etUrl.setText(Settings.ingestUrl)
-        etRoom.setText(Settings.roomName)
+        etRoom.setText(Settings.roomNamesRaw)
         etOwnName.setText(Settings.ownName)
         etMsgId.setText(Settings.msgId)
         etNameId.setText(Settings.nameId)
@@ -86,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         Settings.save(
             token = etToken.text.toString(),
             ingestUrl = etUrl.text.toString(),
-            roomName = etRoom.text.toString(),
+            roomNames = etRoom.text.toString(),
             ownName = etOwnName.text.toString(),
             msgId = etMsgId.text.toString(),
             nameId = etNameId.text.toString(),
@@ -99,7 +93,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshInfo() {
         findViewById<TextView>(R.id.info).text = buildString {
-            append("방: ").append(Settings.roomName).append('\n')
+            append("대상 방: ").append(Settings.roomNamesList().joinToString(", ")).append('\n')
             append("엔드포인트: ").append(Settings.ingestUrl).append('\n')
             append("토큰: ").append(if (Settings.isTokenSet()) "설정됨" else "⚠ 미설정").append('\n')
             append("CALIBRATE: ").append(Settings.calibrate).append('\n')
