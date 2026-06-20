@@ -17,6 +17,9 @@ object Config {
     /** Modal 수집 엔드포인트(고정). */
     const val INGEST_URL = "https://benelog--kakao-ingest.modal.run"
 
+    /** Modal 요약 엔드포인트(고정). 방 멘션 요약 트리거가 호출한다. */
+    const val SUMMARIZE_URL = "https://benelog--kakao-summarize.modal.run"
+
     /** Modal 시크릿 KAKAO_COLLECTOR_TOKEN과 동일한 값. (~/.hermes/.env 참고) */
     const val TOKEN = "PUT_YOUR_KAKAO_COLLECTOR_TOKEN_HERE"
 
@@ -44,6 +47,27 @@ object Config {
      * 있어, 현재 방을 매 이벤트마다 확실히 식별하는 1차 수단으로 쓴다. (실측 2026-06 카톡)
      */
     const val TOOLBAR_TITLE_ID = "com.kakao.talk:id/toolbar_default_title_text"
+
+    // ── 방 멘션 요약(발신) ───────────────────────────────────────
+    // 방에서 "@정상혁 …요약" 멘션을 감지하면 Modal로 요약을 받아 그 방으로 발신한다.
+    // 발신은 읽기 전용 원칙을 깨므로, 입력창/전송버튼 id 캘리브레이션 후 AUTO_REPLY를 켠다.
+    /** 멘션 키워드. 비우면 OWN_NAME(내 닉네임)으로 폴백. 메시지에 이 문자열이 있으면 '나를 부른 것'. */
+    const val MENTION_KEYWORD = ""
+
+    /** 요약 명령 키워드. 멘션 키워드와 함께 있으면 요약 트리거. */
+    const val SUMMARY_KEYWORD = "요약"
+
+    /** 봇이 보낸 요약 앞에 붙이는 마커. 이 마커가 든 메시지는 트리거에서 제외(루프 방지). */
+    const val BOT_MARKER = "🤖 "
+
+    /** 카톡 메시지 입력창 EditText id(캘리브레이션). 비면 발신 불가. */
+    const val INPUT_ID = "com.kakao.talk:id/message_edit_text"
+
+    /** 카톡 전송 버튼 id(캘리브레이션). 비면 발신 불가. */
+    const val SEND_ID = "com.kakao.talk:id/send"
+
+    /** true면 방에서 멘션 요약 감지 시 그 방으로 자동 발신. 기본 false(캘리브레이션 후 수동 ON). */
+    const val AUTO_REPLY = false
 
     /** true면 수집 대신 현재 화면 노드 트리를 Logcat에 덤프(캘리브레이션). */
     const val CALIBRATE = false

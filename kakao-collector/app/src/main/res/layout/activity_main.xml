@@ -74,6 +74,16 @@
 
         <TextView
             style="@style/FieldLabel"
+            android:text="Modal Summarize URL (방 멘션 요약)" />
+
+        <EditText
+            android:id="@+id/etSummarizeUrl"
+            style="@style/FieldInput"
+            android:hint="https://benelog--kakao-summarize.modal.run"
+            android:inputType="textUri" />
+
+        <TextView
+            style="@style/FieldLabel"
             android:text="대상 방 목록 (한 줄에 방 제목 하나)" />
 
         <EditText
@@ -135,6 +145,82 @@
             android:hint="com.kakao.talk:id/title"
             android:inputType="textNoSuggestions" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?android:attr/listDivider" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:text="방 멘션 요약 (발신)"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="8dp"
+            android:text="방에서 멘션+요약 키워드가 보이면 Modal로 요약을 받아 그 방으로 발신합니다. 발신은 읽기 전용을 깨므로, 입력창/전송버튼 id를 캘리브레이션한 뒤 자동발신을 켜세요."
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="멘션 키워드 (비우면 내 닉네임 사용)" />
+
+        <EditText
+            android:id="@+id/etMentionKeyword"
+            style="@style/FieldInput"
+            android:hint="예: 정상혁"
+            android:inputType="text" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="요약 키워드" />
+
+        <EditText
+            android:id="@+id/etSummaryKeyword"
+            style="@style/FieldInput"
+            android:hint="요약"
+            android:inputType="text" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="입력창 id (INPUT_ID, 캘리브레이션)" />
+
+        <EditText
+            android:id="@+id/etInputId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/message_edit_text"
+            android:inputType="textNoSuggestions" />
+
+        <TextView
+            style="@style/FieldLabel"
+            android:text="전송버튼 id (SEND_ID, 캘리브레이션)" />
+
+        <EditText
+            android:id="@+id/etSendId"
+            style="@style/FieldInput"
+            android:hint="com.kakao.talk:id/send"
+            android:inputType="textNoSuggestions" />
+
+        <CheckBox
+            android:id="@+id/cbAutoReply"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="자동발신 — 멘션 요약 감지 시 그 방으로 요약 전송 (캘리브레이션 후 켜기)" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?android:attr/listDivider" />
+
         <CheckBox
             android:id="@+id/cbCalibrate"
             android:layout_width="match_parent"
@@ -154,6 +240,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="저장 후 테스트 메시지 전송" />
+
+        <Button
+            android:id="@+id/btnSummaryTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="지금 요약 테스트 (앱에 표시 · 발신 안 함)" />
 
         <TextView
             android:id="@+id/info"

@@ -14,6 +14,7 @@ object Settings {
 
     private const val KEY_TOKEN = "token"
     private const val KEY_INGEST_URL = "ingest_url"
+    private const val KEY_SUMMARIZE_URL = "summarize_url"
     private const val KEY_ROOM_NAME = "room_name"
     private const val KEY_ROOM_NAMES = "room_names"
     private const val KEY_OWN_NAME = "own_name"
@@ -21,6 +22,11 @@ object Settings {
     private const val KEY_NAME_ID = "name_id"
     private const val KEY_TIME_ID = "time_id"
     private const val KEY_TITLE_ID = "title_id"
+    private const val KEY_MENTION_KEYWORD = "mention_keyword"
+    private const val KEY_SUMMARY_KEYWORD = "summary_keyword"
+    private const val KEY_INPUT_ID = "input_id"
+    private const val KEY_SEND_ID = "send_id"
+    private const val KEY_AUTO_REPLY = "auto_reply"
     private const val KEY_CALIBRATE = "calibrate"
 
     private lateinit var prefs: SharedPreferences
@@ -44,6 +50,10 @@ object Settings {
     var ingestUrl: String
         get() = get(KEY_INGEST_URL, Config.INGEST_URL)
         set(v) = prefs.edit().putString(KEY_INGEST_URL, v).apply()
+
+    var summarizeUrl: String
+        get() = get(KEY_SUMMARIZE_URL, Config.SUMMARIZE_URL)
+        set(v) = prefs.edit().putString(KEY_SUMMARIZE_URL, v).apply()
 
     /** 대상 방 목록 raw 문자열(줄바꿈 구분). 미저장이면 기존 단일 room_name으로 폴백. */
     var roomNamesRaw: String
@@ -81,6 +91,40 @@ object Settings {
         get() = get(KEY_TITLE_ID, Config.TITLE_ID)
         set(v) = prefs.edit().putString(KEY_TITLE_ID, v).apply()
 
+    /** 멘션 키워드 raw(비어도 됨). 트리거 판정엔 [effectiveMention] 사용. */
+    var mentionKeyword: String
+        get() = get(KEY_MENTION_KEYWORD, Config.MENTION_KEYWORD)
+        set(v) = prefs.edit().putString(KEY_MENTION_KEYWORD, v).apply()
+
+    /** 실제 트리거에 쓰는 멘션 키워드: 비어 있으면 내 닉네임(ownName)으로 폴백. */
+    fun effectiveMention(): String = mentionKeyword.ifBlank { ownName }
+
+    var summaryKeyword: String
+        get() = get(KEY_SUMMARY_KEYWORD, Config.SUMMARY_KEYWORD)
+        set(v) = prefs.edit().putString(KEY_SUMMARY_KEYWORD, v).apply()
+
+    /** 카톡 입력창 EditText id. */
+    var inputId: String
+        get() = get(KEY_INPUT_ID, Config.INPUT_ID)
+        set(v) = prefs.edit().putString(KEY_INPUT_ID, v).apply()
+
+    /** 카톡 전송 버튼 id. */
+    var sendId: String
+        get() = get(KEY_SEND_ID, Config.SEND_ID)
+        set(v) = prefs.edit().putString(KEY_SEND_ID, v).apply()
+
+    /** 방 멘션 요약 감지 시 그 방으로 자동 발신할지. 기본 false(캘리브레이션 후 ON). */
+    var autoReply: Boolean
+        get() = if (prefs.contains(KEY_AUTO_REPLY)) {
+            prefs.getBoolean(KEY_AUTO_REPLY, Config.AUTO_REPLY)
+        } else {
+            Config.AUTO_REPLY
+        }
+        set(v) = prefs.edit().putBoolean(KEY_AUTO_REPLY, v).apply()
+
+    /** 봇 발신 마커(루프 방지용 접두). */
+    val botMarker: String get() = Config.BOT_MARKER
+
     var calibrate: Boolean
         get() = if (prefs.contains(KEY_CALIBRATE)) {
             prefs.getBoolean(KEY_CALIBRATE, Config.CALIBRATE)
@@ -93,23 +137,35 @@ object Settings {
     fun save(
         token: String,
         ingestUrl: String,
+        summarizeUrl: String,
         roomNames: String,
         ownName: String,
         msgId: String,
         nameId: String,
         timeId: String,
         titleId: String,
+        mentionKeyword: String,
+        summaryKeyword: String,
+        inputId: String,
+        sendId: String,
+        autoReply: Boolean,
         calibrate: Boolean,
     ) {
         prefs.edit()
             .putString(KEY_TOKEN, token.trim())
             .putString(KEY_INGEST_URL, ingestUrl.trim())
+            .putString(KEY_SUMMARIZE_URL, summarizeUrl.trim())
             .putString(KEY_ROOM_NAMES, roomNames.trim())
             .putString(KEY_OWN_NAME, ownName.trim())
             .putString(KEY_MSG_ID, msgId.trim())
             .putString(KEY_NAME_ID, nameId.trim())
             .putString(KEY_TIME_ID, timeId.trim())
             .putString(KEY_TITLE_ID, titleId.trim())
+            .putString(KEY_MENTION_KEYWORD, mentionKeyword.trim())
+            .putString(KEY_SUMMARY_KEYWORD, summaryKeyword.trim())
+            .putString(KEY_INPUT_ID, inputId.trim())
+            .putString(KEY_SEND_ID, sendId.trim())
+            .putBoolean(KEY_AUTO_REPLY, autoReply)
             .putBoolean(KEY_CALIBRATE, calibrate)
             .apply()
     }

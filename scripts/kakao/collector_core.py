@@ -38,6 +38,39 @@ def parse_since_to_timedelta(since: str | None) -> timedelta:
     return timedelta(days=n)
 
 
+def extract_since(command: str | None) -> str:
+    """Pull a period from a natural-language summarize command into a since token.
+
+    Returns a string `parse_since_to_timedelta` understands ('Nday'/'Nhour'),
+    defaulting to '1day'. Examples: '3일치 요약'→'3day', '최근 12시간 요약'→'12hour',
+    '오늘 요약'→'1day', '어제 요약'→'2day', '이번주 요약'→'7day'.
+
+    Explicit number+unit wins over keywords, and hours win over days so
+    '오늘 최근 12시간만 요약' resolves to '12hour'.
+    """
+    if not command:
+        return "1day"
+    s = str(command).strip().lower()
+
+    # Korean units (시간/일) can be followed by more Korean (시간만, 3일치) where \b
+    # would fail, so match them without a boundary; ASCII units keep \b since a bare
+    # 'd'/'h' could otherwise match inside a word.
+    m = re.search(r"(\d+)\s*시간", s) or re.search(r"(\d+)\s*(?:hours?|h)\b", s)
+    if m:
+        return f"{int(m.group(1))}hour"
+    m = re.search(r"(\d+)\s*일", s) or re.search(r"(\d+)\s*(?:days?|d)\b", s)
+    if m:
+        return f"{int(m.group(1))}day"
+
+    if "어제" in s:
+        return "2day"
+    if any(k in s for k in ("이번주", "이번 주", "일주일", "한주", "한 주")):
+        return "7day"
+    if "오늘" in s:
+        return "1day"
+    return "1day"
+
+
 def normalize_item(payload: dict, received_at: datetime) -> dict:
     """Validate/normalize an ingest payload into a stored record.
 

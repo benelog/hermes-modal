@@ -343,3 +343,117 @@ def kakao_messages(token: str = "", since: str = "1day", room: str = ""):
     records = [rec for key, rec in items_with_keys if key not in stale_set]
     selected = select_messages(records, room or None, since, now)
     return {"ok": True, "count": len(selected), "messages": selected}
+
+
+# Max messages fed into one summary prompt. A `since` window on a busy room could
+# be large; cap to the most recent N so the prompt stays bounded.
+KAKAO_SUMMARY_MAX_MSGS = 600
+
+
+def _build_summary_prompt(room: str, since: str, messages: list) -> str:
+    """Render collected messages + Korean instructions for `hermes -z`.
+
+    The output is posted verbatim back into the KakaoTalk room, so we ask for
+    plain text (no markdown) sized for a single group-chat message.
+    """
+    lines = []
+    for rec in messages:
+        sender = (rec.get("sender") or "?").strip()
+        text = (rec.get("text") or "").strip()
+        ts = (rec.get("client_time") or "").strip()
+        prefix = f"[{ts}] " if ts else ""
+        lines.append(f"{prefix}{sender}: {text}")
+    body = "\n".join(lines)
+    return (
+        f"너는 카카오톡 그룹 채팅방 '{room}'의 최근 대화를 요약하는 도우미야. "
+        f"아래는 최근 {since} 동안 수집된 메시지야(형식: [시각] 보낸이: 내용).\n\n"
+        f"{body}\n\n"
+        "이 대화를 한국어로 요약해줘. 요약문은 그대로 카카오톡 그룹 방에 전송될 거야. 규칙:\n"
+        "- 마크다운 헤더(#)나 굵게(**) 같은 서식 없이 평문으로.\n"
+        "- 그룹 채팅 메시지 한 개에 적당한 길이로 간결하게(핵심 위주, 너무 길지 않게).\n"
+        "- 핵심 화제 몇 개를 짧게 정리하고, 결정/약속/일정(다음 모임, 읽을 범위 등)이 있으면 강조.\n"
+        "- 메시지에 없는 내용은 지어내지 말 것.\n"
+        "- 일부 메시지가 누락됐을 수 있으니 단정적 표현은 피할 것.\n"
+        "- 요약 본문만 출력하고 다른 말(설명/머리말)은 붙이지 말 것."
+    )
+
+
+@app.function(
+    image=image,
+    secrets=[secret, github_secret],
+    volumes=volume_mounts,
+    timeout=60 * 10,
+    max_containers=1,
+    scaledown_window=60 * 5,
+    env=common_env,
+)
+@modal.fastapi_endpoint(method="POST", label="kakao-summarize")
+def kakao_summarize(item: dict, token: str = ""):
+    """Summarize a room's recent messages with Hermes' LLM and return the text.
+
+    Body: {"room": str, "command": str}. `command` is the natural-language request
+    (e.g. "@정상혁 3일치 요약해줘"); the period is extracted from it. Reuses the
+    Modal-resident Hermes model via `hermes -z` (one-shot), so no extra LLM key is
+    needed. The device posts the returned `summary` back into the KakaoTalk room.
+    """
+    import os
+    import subprocess
+    import sys
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    if token != os.environ.get("KAKAO_COLLECTOR_TOKEN", ""):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    room = (item.get("room") or "").strip()
+    command = item.get("command") or ""
+    if not room:
+        raise HTTPException(status_code=400, detail="room is required")
+
+    sys.path.insert(0, KAKAO_SCRIPTS_PATH)
+    from kakao.collector_core import extract_since, select_messages
+
+    since = extract_since(command)
+    now = datetime.now(timezone.utc)
+    records = [rec for _key, rec in kakao_dict.items()]
+    selected = select_messages(records, room, since, now)
+
+    if not selected:
+        return {
+            "ok": True,
+            "count": 0,
+            "since": since,
+            "summary": f"최근 {since} 동안 '{room}' 방에서 수집된 메시지가 없어요. "
+            "(방을 열어 위로 스크롤해야 수집됩니다.)",
+        }
+
+    if len(selected) > KAKAO_SUMMARY_MAX_MSGS:
+        selected = selected[-KAKAO_SUMMARY_MAX_MSGS:]
+
+    subprocess.run(
+        ["python", "/opt/hermes-modal/scripts/prepare_runtime.py", "--fast"],
+        check=True,
+    )
+
+    prompt = _build_summary_prompt(room, since, selected)
+    try:
+        proc = subprocess.run(
+            ["hermes", "-z", prompt],
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+            cwd=HERMES_HOME,
+            timeout=60 * 7,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="summarize timed out")
+
+    summary = proc.stdout.strip()
+    if proc.returncode != 0 or not summary:
+        raise HTTPException(
+            status_code=502,
+            detail=f"summarize failed rc={proc.returncode}: {proc.stderr.strip()[-500:]}",
+        )
+
+    return {"ok": True, "count": len(selected), "since": since, "summary": summary}

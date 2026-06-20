@@ -5,8 +5,10 @@
 **전체 통신 구조·요구사항·추구 원리**까지 함께 기록한다(다음 세션의 단일 진입점).
 
 - 대상 방: **'아카라카북클럽'** (단일 방만 수집)
-- 앱 역할: 대상 방 화면을 **접근성으로 읽어** `{room, sender, text, ts}`를 Modal `/ingest`로 POST. **읽기 전용**.
+- 앱 역할: 대상 방 화면을 **접근성으로 읽어** `{room, sender, text, ts}`를 Modal `/ingest`로 POST. 수집은 **읽기 전용**.
 - 요약/전달: 서버(Modal + Hermes)가 담당 — 이 앱과 분리됨.
+- (선택) **방 멘션 요약 발신**: 방에서 `@정상혁 …요약` 멘션이 보이면 Modal `kakao_summarize`(Hermes LLM)로
+  요약을 받아 **그 방으로 발신**한다. 읽기 전용을 깨는 부분이라 **기본 OFF**, 캘리브레이션 후 켠다. → §9.
 
 ---
 
@@ -188,14 +190,54 @@ kakao-collector/
     src/main/AndroidManifest.xml
     src/main/java/net/benelog/kakaocollector/
       Config.kt                 설정 "기본값"(폴백). 실값은 Settings에서.
-      Settings.kt               SharedPreferences 기반 런타임 설정(토큰/URL/방/ids/CALIBRATE)
+      Settings.kt               SharedPreferences 기반 런타임 설정(토큰/URL/방/ids/요약발신/CALIBRATE)
       CollectorApp.kt           Application — 시작 시 Settings 초기화
-      KakaoCollectorService.kt  접근성 수집 서비스(핵심) — Settings 사용
+      KakaoCollectorService.kt  접근성 수집 서비스(핵심) — 수집 + 멘션 요약 트리거·발신
+      SummaryTrigger.kt         멘션+요약 명령 판정(순수)
+      Summarizer.kt             /summarize POST — Hermes LLM 요약 요청(서비스/액티비티 공용)
       Poster.kt                 /ingest POST — Settings.token/ingestUrl 사용
-      MainActivity.kt           상태/접근성설정/설정편집/테스트 화면
+      MainActivity.kt           상태/접근성설정/설정편집/연결·요약 테스트 화면
     src/main/res/...            레이아웃·문자열·테마·접근성설정·아이콘
   TODO.md                       다음 세션 할 일
 ```
 
 명령어 메모(서버측, 참고): 테스트 `python3 tests/test_*.py`, 배포 `modal deploy modal_app.py`,
 시크릿 재생성 `python3 scripts/create_modal_secret.py`, 저장소 비우기 `modal dict clear kakao-collect -y`.
+
+---
+
+## 9. 방 멘션 요약 (발신) — 선택 기능
+
+방에서 누군가 **`@정상혁`을 멘션하며 "요약해줘"** 라고 하면, 그 방의 최근 대화를 요약해 **그 방으로 답장**한다.
+Telegram을 거치지 않고 카톡 방 안에서 끝난다. 요약 LLM은 새 키 없이 **Modal의 Hermes**(`hermes -z`)를 재사용한다.
+
+### 흐름
+1. 앱이 방의 **맨 아래(최신) 새 메시지**가 멘션 키워드+요약 키워드를 담고 있으면 트리거.
+   (스크롤 백필로 올라온 옛 명령, 방 여는 순간의 옛 명령은 발화 안 함 — `CONTENT_CHANGED`+새 메시지일 때만.)
+2. Modal `kakao_summarize`로 `{room, command}` POST → Hermes가 요약문 생성 → 반환.
+3. 앱이 **발신 직전 현재 방==트리거 방을 재확인**하고, 입력창에 `ACTION_SET_TEXT`(마커+요약) → 전송버튼 클릭.
+
+### 설정 (앱 "방 멘션 요약" 섹션)
+- **Modal Summarize URL** = 기본값 채워져 있음(`modal deploy` 출력의 `kakao-summarize` URL과 일치하는지 확인).
+- **멘션 키워드** = 메시지에 이 문자열이 있으면 "나를 부른 것". 비우면 **내 닉네임**으로 폴백(예: `정상혁`).
+- **요약 키워드** = 기본 `요약`. 멘션 키워드와 함께 있어야 트리거.
+- **입력창 id / 전송버튼 id** = 아래 캘리브레이션으로 확정. 비면 발신 안 함.
+- **자동발신 체크박스** = **기본 OFF**. 캘리브레이션 후 켜야 실제로 방에 발신한다.
+
+### 캘리브레이션 (입력창/전송버튼 id — 1회)
+1. 앱 "설정"에서 **CALIBRATE 체크 → 저장**, 접근성 ON.
+2. 대상 방을 열고 **입력창을 탭**한 뒤 `adb logcat -s KakaoCollector`에서 입력창 EditText의 `id=...` 확인.
+3. 무언가 입력해 **전송 버튼이 나타난 상태**에서 전송 버튼의 `id=...` 확인.
+4. 두 id를 앱 "입력창 id"/"전송버튼 id"에 입력, **CALIBRATE 해제 → 저장**.
+   (실측 추정 기본값: 입력창 `id/message_edit_text`, 전송 `id/send`. 다르면 위로 교정.)
+
+### 안전장치
+- **자동발신 기본 OFF** — 켜기 전까지 어떤 방에도 발신하지 않는다.
+- **루프 방지** — 봇 발신엔 마커(`🤖`) 접두, 마커 든 메시지는 트리거에서 제외.
+- **오발신 방지** — 발신 직전 방 일치 재확인, 방별 동시요약 1건, 최신(맨 아래) 새 메시지만 명령 인정.
+- 트리거는 **누구나** 가능(요청 사양). 특정인만으로 좁히려면 추후 멘션 키워드/화이트리스트 확장.
+
+### 테스트
+- **발신과 분리 검증**: 앱의 **"지금 요약 테스트"** 버튼 → 첫 방 요약을 받아 **앱 화면에 표시**(방에 발신 안 함).
+  Modal/Hermes 경로가 정상인지 먼저 확인한 뒤 자동발신을 켠다.
+- **E2E**: 자동발신 ON → 방에서 "@정상혁 요약해줘"(또는 "@정상혁 3일치 요약") → 그 방에 요약 답장.

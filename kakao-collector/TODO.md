@@ -53,6 +53,20 @@
 - [ ] **(나중) 매일 07:00 cron 자동요약**: `cron_tick`이 이미 07:00/19:00 KST에 깨움.
       Hermes cron job + `cron_jobs/*.json` 버전관리. 온디맨드 충분히 검증 후 추가.
 
+## E. 방 멘션 요약(발신) — 신규 기능 (코드 완료, 기기 검증 전)
+설계: `docs/superpowers/specs/2026-06-20-kakao-mention-summary-bot-design.md`. 상세: `README.md` §9.
+- [x] **Modal `kakao_summarize` 엔드포인트**: `{room, command}` POST → since 추출 → `kakao_dict` 조회 →
+      `hermes -z`로 요약 → `{ok,count,since,summary}`. 새 키 불필요(기존 Codex/Hermes 재사용). 토큰 동일.
+- [x] **순수 로직 `extract_since`** + 단위테스트(21개 통과): "3일치"→3day, "오늘"→1day, "이번주"→7day 등.
+- [x] **앱 트리거/발신**: `SummaryTrigger`(멘션+요약 판정), `Summarizer`(/summarize 호출),
+      `KakaoCollectorService`(맨 아래 새 메시지 감지 + 발신), 설정/UI/수동 테스트 버튼. 디버그 빌드 성공.
+- [ ] **입력창/전송버튼 id 캘리브레이션**: README §9 절차로 두 id 확정해 앱 설정에 입력.
+- [ ] **수동 요약 테스트**: "지금 요약 테스트" 버튼 → 앱에 요약 표시되는지(=Modal/Hermes 경로) 확인.
+- [ ] **자동발신 ON 후 E2E**: 방에서 "@정상혁 요약해줘" → 그 방에 요약 답장. "3일치" 변형, 스크롤
+      백필 시 옛 명령 미발화, 봇 메시지 루프 없음 확인.
+- [ ] **(주의) Codex OAuth 경합 관찰**: gateway/cron_tick과 같은 auth.json 공유. 요약 실패가 잦으면
+      README "Codex OAuth refresh token..." 항목 또는 API key provider 전환 검토.
+
 ## 참고
 - 빌드/캘리브레이션 상세, 레퍼런스 값(엔드포인트/토큰위치/dict), 원리는 `README.md`에 있음.
 - Telegram DM chat_id `7160469912` (가이드 전송 등에 사용).

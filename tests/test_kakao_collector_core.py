@@ -51,6 +51,39 @@ class ParseSinceTests(unittest.TestCase):
         self.assertEqual(collector_core.parse_since_to_timedelta("어쩌고"), timedelta(days=1))
 
 
+class ExtractSinceTests(unittest.TestCase):
+    def test_default_when_no_period(self):
+        self.assertEqual(collector_core.extract_since("요약해줘"), "1day")
+        self.assertEqual(collector_core.extract_since(""), "1day")
+        self.assertEqual(collector_core.extract_since(None), "1day")
+
+    def test_explicit_days(self):
+        self.assertEqual(collector_core.extract_since("3일치 요약해줘"), "3day")
+        self.assertEqual(collector_core.extract_since("최근 5일 대화 요약"), "5day")
+        self.assertEqual(collector_core.extract_since("summarize last 2 days"), "2day")
+        self.assertEqual(collector_core.extract_since("2d 요약"), "2day")
+
+    def test_explicit_hours(self):
+        self.assertEqual(collector_core.extract_since("최근 12시간 요약해줘"), "12hour")
+        self.assertEqual(collector_core.extract_since("6h 요약"), "6hour")
+
+    def test_keyword_fallbacks(self):
+        self.assertEqual(collector_core.extract_since("오늘 대화 요약해줘"), "1day")
+        self.assertEqual(collector_core.extract_since("어제 요약"), "2day")
+        self.assertEqual(collector_core.extract_since("이번주 요약 부탁"), "7day")
+        self.assertEqual(collector_core.extract_since("일주일치 요약"), "7day")
+
+    def test_hours_take_priority_over_day_keyword(self):
+        # An explicit "12시간" must win even if a day-keyword is also present.
+        self.assertEqual(collector_core.extract_since("오늘 최근 12시간만 요약"), "12hour")
+
+    def test_result_is_parseable(self):
+        # Whatever extract_since returns must be understood by parse_since_to_timedelta.
+        for cmd in ["요약", "3일치 요약", "12시간 요약", "이번주 요약", "어제 요약"]:
+            td = collector_core.parse_since_to_timedelta(collector_core.extract_since(cmd))
+            self.assertGreater(td, timedelta(0))
+
+
 class NormalizeItemTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 6, 20, 0, 0, tzinfo=timezone.utc)
