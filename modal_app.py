@@ -356,25 +356,37 @@ def _build_summary_prompt(room: str, since: str, messages: list) -> str:
     The output is posted verbatim back into the KakaoTalk room, so we ask for
     plain text (no markdown) sized for a single group-chat message.
     """
+    from datetime import datetime, timedelta, timezone
+
+    kst = timezone(timedelta(hours=9))
+
+    def kst_label(received_at: str) -> str:
+        try:
+            return datetime.fromisoformat(received_at).astimezone(kst).strftime("%m/%d %H:%M")
+        except (ValueError, TypeError):
+            return ""
+
     lines = []
     for rec in messages:
         sender = (rec.get("sender") or "?").strip()
         text = (rec.get("text") or "").strip()
-        ts = (rec.get("client_time") or "").strip()
-        prefix = f"[{ts}] " if ts else ""
+        tlabel = kst_label(rec.get("received_at", ""))
+        prefix = f"[{tlabel}] " if tlabel else ""
         lines.append(f"{prefix}{sender}: {text}")
     body = "\n".join(lines)
     return (
         f"너는 카카오톡 그룹 채팅방 '{room}'의 최근 대화를 요약하는 도우미야. "
-        f"아래는 최근 {since} 동안 수집된 메시지야(형식: [시각] 보낸이: 내용, 시각은 비어 있을 수 있음). "
-        "메시지는 대화에 나온 순서대로 정렬돼 있어.\n\n"
+        f"아래는 최근 {since} 동안 수집된 메시지야(형식: [수집시각 KST(MM/DD HH:MM)] 보낸이: 내용). "
+        "메시지는 수집 시각 순으로 정렬돼 있어. 이 시각은 '수집된 대략 시각'이라, 방을 실시간으로 보고 "
+        "있었다면 실제 발신 시각과 거의 같지만, 오래된 메시지를 나중에 한꺼번에 스크롤해 모았다면 어긋날 수 있어.\n\n"
         f"{body}\n\n"
         "이 대화를 한국어로 요약해줘. 요약문은 그대로 카카오톡 그룹 방에 전송될 거야. 규칙:\n"
         "- 마크다운 헤더(#)나 굵게(**) 같은 서식 없이 평문으로.\n"
         "- 맨 앞에 '📚 언급된 책'으로, 대화 중 언급·추천된 책 제목을 먼저 나열한다. "
         "저자·추천한 사람·간단한 맥락이 확인되면 함께 적되, 확인 안 되면 지어내지 말 것. 책이 없으면 이 부분은 생략.\n"
         "- 그 다음 나머지 대화를 주제별로 정리하되, 대화에 등장한 순서대로 적는다.\n"
-        "- 각 주제에 시각([시각] 표시) 정보가 있으면 그 시각을 함께 적고, 없으면 시각은 생략한다(시각을 지어내지 말 것).\n"
+        "- 각 주제 앞에 그 주제가 처음 등장한 '대략 시각'을 위 [시각] 기준으로 함께 적는다(예: '오후 2시쯤' 또는 '14:20'). "
+        "정확한 값이 아니라 대략임을 감안해 너무 정밀하게 단정하지 말고, 시각 정보가 없으면 생략한다(지어내지 말 것).\n"
         "- 그룹 채팅 메시지 한 개에 적당한 길이로 간결하게. 결정/약속/일정(다음 모임, 읽을 범위 등)은 강조.\n"
         "- 메시지에 없는 내용은 지어내지 말 것. 일부 메시지가 누락됐을 수 있으니 단정적 표현은 피할 것.\n"
         "- 요약 본문만 출력하고 다른 말(설명/머리말)은 붙이지 말 것."
