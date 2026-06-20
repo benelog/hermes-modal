@@ -1,6 +1,9 @@
 package net.benelog.kakaocollector
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Notification
+import android.app.RemoteInput
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -28,6 +31,9 @@ class KakaoCollectorService : AccessibilityService() {
         private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30일
         // 요약문 발신: 텍스트 입력 후 카톡이 전송 버튼을 활성화할 시간을 준다.
         private const val SEND_CLICK_DELAY_MS = 400L
+        // 같은 방 재트리거 최소 간격(중복/이중 발신 방지: scrape·알림 경로 공통).
+        private const val TRIGGER_COOLDOWN_MS = 60_000L
+        private const val NOTIF_CAP = 500
     }
 
     private val seen = LinkedHashSet<String>()
@@ -39,8 +45,10 @@ class KakaoCollectorService : AccessibilityService() {
     private var activeRoom = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    // 방별 요약 진행중 플래그(동시 1건 제한, 발신 완료 시 해제).
-    private val summarizing = ConcurrentHashMap.newKeySet<String>()
+    // 방별 마지막 트리거 시각(쿨다운 — scrape·알림 경로의 중복/이중 발신 방지).
+    private val lastTrigger = ConcurrentHashMap<String, Long>()
+    // 처리한 알림 키(같은 알림이 여러 번 와도 1회만 트리거).
+    private val handledNotifs = LinkedHashSet<String>()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -54,6 +62,8 @@ class KakaoCollectorService : AccessibilityService() {
         event ?: return
         if (event.packageName?.toString() != Config.KAKAO_PACKAGE) return
         when (event.eventType) {
+            // 카톡 알림: 방이 닫혀 있어도 멘션 요약 명령을 잡아 알림 '답장'으로 발신.
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> handleNotification(event)
             // 화면 전환(방 열기)은 방 판별 기준점이라 레이트리밋 없이 처리. 단, 방을 '여는' 순간
             // 맨 아래에 오래전 명령이 있어도 발화하지 않도록 트리거는 허용하지 않는다(수집만).
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> handle(allowTrigger = false)
@@ -190,9 +200,10 @@ class KakaoCollectorService : AccessibilityService() {
         }
         if (newCount > 0) Log.i(TAG, "posted $newCount new message(s)")
 
-        // 맨 아래(최신) 메시지가 '새것'이고 멘션 요약 명령이면 발화.
+        // 맨 아래(최신) 메시지가 '새것'이고 멘션 요약 명령이면 발화(열린 방 → 입력창으로 발신).
         if (allowTrigger && bottomIsNew && bottomText.isNotEmpty()) {
-            maybeTriggerSummary(activeRoom, bottomText)
+            val room = activeRoom
+            triggerSummary(room, bottomText) { msg -> mainHandler.post { sendToRoom(room, msg) } }
         }
     }
 
@@ -203,28 +214,93 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     /**
-     * 명령 메시지면 Modal로 요약을 받아 그 방으로 발신한다. 자동발신이 켜져 있고, 멘션+요약 키워드를
-     * 모두 담고 있으며(봇 마커 없음), 그 방에 진행중 요약이 없을 때만.
+     * 명령이면 Modal로 요약을 받아 [deliver]로 전달한다. 자동발신이 켜져 있고, 멘션+요약 키워드를
+     * 모두 담고(봇 마커 없음), 그 방의 쿨다운이 지났을 때만. [deliver]는 발신 방법(입력창/알림답장)을
+     * 주입받아 scrape·알림 경로가 같은 트리거 로직을 공유한다.
      */
-    private fun maybeTriggerSummary(room: String, command: String) {
+    private fun triggerSummary(room: String, command: String, deliver: (String) -> Unit) {
         if (!Settings.autoReply) return
         val mention = Settings.effectiveMention()
         if (!SummaryTrigger.isTrigger(command, mention, Settings.summaryKeyword, Settings.botMarker)) return
-        if (!summarizing.add(room)) return // 이미 진행중
+        val now = System.currentTimeMillis()
+        val last = lastTrigger[room] ?: 0L
+        if (now - last < TRIGGER_COOLDOWN_MS) return // 중복/이중 발신 방지
+        lastTrigger[room] = now
         Log.i(TAG, "summary trigger room=$room cmd=${command.take(40)}")
         Summarizer.request(room, command) { res ->
             if (res.ok && res.summary.isNotBlank()) {
-                mainHandler.post {
-                    try {
-                        sendToRoom(room, Settings.botMarker + res.summary)
-                    } finally {
-                        summarizing.remove(room)
-                    }
-                }
+                deliver(Settings.botMarker + res.summary)
             } else {
                 Log.w(TAG, "summary failed room=$room err=${res.error}")
-                summarizing.remove(room)
             }
+        }
+    }
+
+    /**
+     * 카톡 알림에서 멘션 요약 명령을 잡아 발신한다. 방이 닫혀 있어도 동작하도록, 알림의 '답장'
+     * 액션(RemoteInput)으로 그 방에 직접 답장한다(없으면 열린 방 입력창으로 폴백).
+     */
+    @Suppress("DEPRECATION")
+    private fun handleNotification(event: AccessibilityEvent) {
+        if (!Settings.autoReply) return
+        val notification = event.parcelableData as? Notification ?: return
+        val extras = notification.extras ?: return
+
+        fun ex(key: String) = extras.getCharSequence(key)?.toString()?.trim() ?: ""
+        val convTitle = ex(Notification.EXTRA_CONVERSATION_TITLE)
+        val subText = ex(Notification.EXTRA_SUB_TEXT)
+        val title = ex(Notification.EXTRA_TITLE)
+        val bigText = ex(Notification.EXTRA_BIG_TEXT)
+        val text = ex(Notification.EXTRA_TEXT)
+
+        // 방 이름 후보(그룹 대화 제목 우선) → 대상 방으로 매칭. 대상이 아니면 무시.
+        val targets = Settings.roomNamesList()
+        val room = listOf(convTitle, subText, title)
+            .firstNotNullOfOrNull { c -> c.takeIf { it.isNotEmpty() }?.let { RoomMatch.match(it, targets) } }
+            ?: return
+        // 명령 본문 후보(요약된 큰 본문 우선).
+        val body = listOf(bigText, text, title).firstOrNull { it.isNotEmpty() } ?: return
+
+        // 같은 알림이 여러 번 와도 1회만.
+        val key = room + "" + body
+        if (handledNotifs.contains(key)) return
+        handledNotifs.add(key)
+        if (handledNotifs.size > NOTIF_CAP) {
+            val it = handledNotifs.iterator(); if (it.hasNext()) { it.next(); it.remove() }
+        }
+
+        val replyAction = findReplyAction(notification)
+        val deliver: (String) -> Unit = if (replyAction != null) {
+            { msg -> replyViaRemoteInput(replyAction, msg) }
+        } else {
+            // 답장 액션이 없으면(드묾) 열린 방 입력창으로 폴백.
+            { msg -> mainHandler.post { sendToRoom(room, msg) } }
+        }
+        triggerSummary(room, body, deliver)
+    }
+
+    /** 알림 액션 중 RemoteInput(인라인 답장)을 가진 것을 찾는다. */
+    private fun findReplyAction(n: Notification): Notification.Action? {
+        val actions = n.actions ?: return null
+        for (a in actions) {
+            val ris = a.remoteInputs
+            if (ris != null && ris.isNotEmpty()) return a
+        }
+        return null
+    }
+
+    /** 알림의 답장 액션(RemoteInput)으로 그 방에 직접 답장한다(방을 열지 않아도 됨). */
+    private fun replyViaRemoteInput(action: Notification.Action, text: String) {
+        try {
+            val ris = action.remoteInputs ?: return
+            val intent = Intent()
+            val results = Bundle()
+            for (ri in ris) results.putCharSequence(ri.resultKey, text)
+            RemoteInput.addResultsToIntent(ris, intent, results)
+            action.actionIntent.send(this, 0, intent)
+            Log.i(TAG, "summary replied via notification RemoteInput")
+        } catch (e: Exception) {
+            Log.w(TAG, "remote input reply failed: ${e.message}")
         }
     }
 
