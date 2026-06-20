@@ -36,8 +36,14 @@ object Config {
     /** 시각 노드 id. (실측: created_at이 아니라 time. 단, 시각은 접근성에 거의 노출 안 됨) */
     const val TIME_ID = "com.kakao.talk:id/time"
 
-    /** 방 제목 노드 id(방 식별 보조). (실측: 방 상단 제목은 id/name 노드에 들어감) */
+    /** 방 제목 노드 id(방 열 때만 text로 뜸, 폴백용). (실측: 방 상단 제목은 id/name 노드에 들어감) */
     const val TITLE_ID = "com.kakao.talk:id/name"
+
+    /**
+     * 툴바 제목 노드 id. text는 비어도 **contentDescription에 방이름(+인원수)이 스크롤 중에도 안정적으로**
+     * 있어, 현재 방을 매 이벤트마다 확실히 식별하는 1차 수단으로 쓴다. (실측 2026-06 카톡)
+     */
+    const val TOOLBAR_TITLE_ID = "com.kakao.talk:id/toolbar_default_title_text"
 
     /** true면 수집 대신 현재 화면 노드 트리를 Logcat에 덤프(캘리브레이션). */
     const val CALIBRATE = false
