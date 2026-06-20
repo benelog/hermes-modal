@@ -10,7 +10,6 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import org.json.JSONObject
 
 /** 상태 확인 + 접근성 설정 열기 + 설정 편집(토큰/URL/방/ids) + 연결 테스트 화면. */
 class MainActivity : AppCompatActivity() {
