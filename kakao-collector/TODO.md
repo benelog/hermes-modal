@@ -35,6 +35,10 @@
 - [ ] **보낸이 귀속 엣지케이스**: 연속 메시지에서 보낸이 한 번만 보일 때 승계 로직 점검,
       동명이인/시스템 메시지("들어왔습니다" 등) 필터.
 - [ ] **사진/스티커/이모티콘**: `[사진]` 등 비텍스트 항목을 건너뛸지/표기할지 정리.
+- [ ] **(알려진 한계) AccessibilityNodeInfo recycle 미적용**: `walk()`가 모은 노드를 `scrape()`가
+      나중에 읽는 지연순회 구조라 walk 중 recycle하면 use-after-recycle. API 33+에선 recycle이 no-op이고
+      현 기기(API 36)는 무관하지만, API 26-32 장시간 사용 시 노드 풀 압박 가능 → 필요해지면 scrape 처리 후
+      일괄 recycle하도록 구조 변경.
 
 ## C. 선택 — 자동화/편의 (가치 보고 결정)
 - [ ] **자동 스크롤 백필**: `performAction(ACTION_SCROLL_BACKWARD)`로 과거분 일괄 수집

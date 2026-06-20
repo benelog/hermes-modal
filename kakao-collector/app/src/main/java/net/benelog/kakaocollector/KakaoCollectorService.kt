@@ -79,7 +79,10 @@ class KakaoCollectorService : AccessibilityService() {
                         activeRoom = matched
                     }
                     // 제목이 보이는데 대상이 아님 → 다른 방으로 나간 것.
-                    title != null -> inTargetRoom = false
+                    title != null -> {
+                        inTargetRoom = false
+                        activeRoom = ""
+                    }
                     // 제목 노드가 안 보임(일시 윈도우): 미입장 상태면 모든 윈도우에서 대상 이름 한 번 더 탐색.
                     !inTargetRoom -> {
                         val byWindow = matchedRoomInAnyWindow(root, targets)

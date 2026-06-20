@@ -1,6 +1,7 @@
 package net.benelog.kakaocollector
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
@@ -23,12 +24,17 @@ object Uploader {
     /** 수집 메시지 제출: DB 기록 → 새 행이면 POST → 성공 시 sent_ok. 중복이면 아무것도 안 함. */
     fun submit(room: String, sender: String, text: String, ts: String) {
         exec.execute {
-            val id = store.recordNew(room, sender, text, ts, System.currentTimeMillis())
-            if (id < 0) return@execute
-            val ok = Poster.post(
-                JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ts),
-            )
-            if (ok) store.markSent(id)
+            try {
+                val id = store.recordNew(room, sender, text, ts, System.currentTimeMillis())
+                if (id < 0) return@execute // 중복
+                val ok = Poster.post(
+                    JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ts),
+                )
+                if (ok) store.markSent(id)
+            } catch (e: Exception) {
+                // 예외로 executor 스레드가 조용히 죽지 않게(다음 제출은 계속). DB 미기록분은 재시작 후 재시도됨.
+                Log.w(KakaoCollectorService.TAG, "uploader submit failed: ${e.message}")
+            }
         }
     }
 
