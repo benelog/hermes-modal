@@ -82,7 +82,7 @@ class KakaoCollectorService : AccessibilityService() {
                 }
                 // title == null: 방 식별 불가 → 직전 상태 유지(섣불리 해제/입장하지 않음).
             }
-            if (inTargetRoom && activeRoom.isNotEmpty()) scrape(root)
+            if (inTargetRoom && activeRoom.isNotEmpty()) scrape()
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
         }
@@ -106,43 +106,63 @@ class KakaoCollectorService : AccessibilityService() {
         return null
     }
 
-    private fun scrape(root: AccessibilityNodeInfo) {
+    /**
+     * 현재 화면의 말풍선을 수집한다. 카톡은 말풍선 RecyclerView를 rootInActiveWindow가 아닌
+     * '다른 윈도우'에 둘 수 있어, getWindows()의 모든 윈도우를 훑는다(없으면 활성 윈도우 폴백).
+     */
+    private fun scrape() {
         val ownName = Settings.ownName
         val nameId = Settings.nameId
         val timeId = Settings.timeId
         val msgId = Settings.msgId
         val screenW = resources.displayMetrics.widthPixels
-
-        val ordered = ArrayList<AccessibilityNodeInfo>()
-        walk(root) { ordered.add(it) }
-
-        var curSender = ""
-        var curTime = ""
-        var newCount = 0
         val rect = android.graphics.Rect()
-        for (n in ordered) {
-            val id = n.viewIdResourceName ?: ""
-            val txt = n.text?.toString()?.trim() ?: ""
-            if (txt.isEmpty()) continue
-            when {
-                nameId.isNotEmpty() && id == nameId -> curSender = txt
-                timeId.isNotEmpty() && id == timeId -> curTime = txt
-                msgId.isNotEmpty() && id == msgId -> {
-                    // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다(오른쪽 여백 < 왼쪽 여백).
-                    // 우측정렬=내 메시지 → 내 닉네임(ownName), 좌측정렬=남 메시지 → 직전 닉네임(curSender).
-                    n.getBoundsInScreen(rect)
-                    val sender = if ((screenW - rect.right) < rect.left) ownName else curSender
-                    // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
-                    if (sender.isEmpty()) continue
-                    val key = DedupeKey.of(activeRoom, sender, txt, curTime)
-                    if (firstSeen(key)) {
-                        newCount++
-                        Uploader.submit(activeRoom, sender, txt, curTime)
+
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        windows?.forEach { w -> w.root?.let { roots.add(it) } }
+        if (roots.isEmpty()) rootInActiveWindow?.let { roots.add(it) }
+
+        var newCount = 0
+        for (root in roots) {
+            // 보낸이/시각은 같은 트리 안에서 말풍선보다 먼저 나오므로 윈도우(트리)마다 초기화.
+            var curSender = ""
+            var curTime = ""
+            walk(root) { n ->
+                val id = n.viewIdResourceName ?: ""
+                // 카톡이 본문/닉네임을 text가 아니라 contentDescription에 두기도 한다 → text 우선, 없으면 cd.
+                val value = nodeValue(n)
+                if (value.isEmpty()) return@walk
+                when {
+                    nameId.isNotEmpty() && id == nameId -> curSender = value
+                    timeId.isNotEmpty() && id == timeId -> curTime = value
+                    msgId.isNotEmpty() && id == msgId -> {
+                        // 답장에 인용된 원문은 'Replied/Original message ...'로 와서 중복이므로 건너뜀.
+                        if (value.startsWith("Replied message") || value.startsWith("Original message")) {
+                            return@walk
+                        }
+                        // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다(오른쪽 여백 < 왼쪽 여백).
+                        // 우측정렬=내 메시지 → 내 닉네임(ownName), 좌측정렬=남 메시지 → 직전 닉네임(curSender).
+                        n.getBoundsInScreen(rect)
+                        val sender = if ((screenW - rect.right) < rect.left) ownName else curSender
+                        // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
+                        if (sender.isNotEmpty()) {
+                            val key = DedupeKey.of(activeRoom, sender, value, curTime)
+                            if (firstSeen(key)) {
+                                newCount++
+                                Uploader.submit(activeRoom, sender, value, curTime)
+                            }
+                        }
                     }
                 }
             }
         }
         if (newCount > 0) Log.i(TAG, "posted $newCount new message(s)")
+    }
+
+    /** 노드의 표시값: text 우선, 비었으면 contentDescription. 둘 다 trim. */
+    private fun nodeValue(n: AccessibilityNodeInfo): String {
+        n.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return n.contentDescription?.toString()?.trim() ?: ""
     }
 
     /** 처음 보는 key면 기억하고 true. 용량 상한 초과 시 가장 오래된 것부터 제거. */
