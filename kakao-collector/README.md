@@ -86,7 +86,13 @@
     좌측 정렬이면 남 메시지 → 그 닉네임으로 적는다. 텍스트·문서(PDF)카드 모두 검증됨.
   - **URL 미리보기 카드는 수집 안 됨**: 미리보기는 `id/chat_forward`의 `id=null` 노드(제목/설명/도메인)라
     `id/message`가 아니어서 자동 제외된다.
-  - **실기기 E2E 검증(2026-06-20)**: 내 메시지→`정상혁`, 남 메시지(김응수)→실제 닉네임으로 Modal 적재 확인.
+  - **실기기 E2E 검증(2026-06-20)**: 내 메시지→`정상혁`, 남 메시지→실제 닉네임으로 적재 확인. 멀티룸(방별 태깅)·
+    로컬 SQLite 영속·재시작 후 재전송방지·방별 구분(나와의 채팅 미수집)까지 확인(ABC 100여 건 수집).
+  - **⚠ 카톡 접근성 출력 특성(중요·실측)**: 카톡이 값을 `text`가 아니라 **`contentDescription`** 에 두기도 한다.
+    ① 방 제목은 `toolbar_default_title_text`의 **cd**(스크롤 중에도 안정적, 방 식별의 1차 수단).
+    ② 말풍선 본문/닉네임도 `text`가 비고 **cd**에 옴 → 코드가 `text 우선, 없으면 cd`(`nodeValue`)로 읽는다.
+    ③ 말풍선 RecyclerView가 `rootInActiveWindow`가 아닌 **다른 윈도우**에 있을 수 있어 `getWindows()` 전체를 훑는다.
+    ④ 답장 인용은 `'Replied/Original message …'`로 와서 중복이라 건너뛴다. (카톡 UI 업데이트 시 재점검 지점.)
 - 참고로 남겨둔 다른 디바이스 방식 가이드: `scripts/tasker/README.md`(Tasker+AutoInput),
   `scripts/autojs/README.md`(AutoJs6) — 채택은 이 전용 앱.
 
