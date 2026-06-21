@@ -389,6 +389,8 @@ def _build_summary_prompt(room: str, since: str, messages: list) -> str:
         "- 그 다음 나머지 대화를 주제별로 정리하되, 대화에 등장한 순서대로 적는다.\n"
         "- 각 주제 앞에 그 주제가 처음 등장한 '대략 시각'을 위 [시각] 기준으로 함께 적는다(예: '오후 2시쯤' 또는 '14:20'). "
         "정확한 값이 아니라 대략임을 감안해 너무 정밀하게 단정하지 말고, 시각 정보가 없으면 생략한다(지어내지 말 것).\n"
+        "- 대화에 공유된 URL/링크 주소 자체는 본문에 나열하지 마(어떤 맥락에서 공유됐는지만 필요하면 언급). "
+        "공유된 링크 목록은 요약 맨 끝에 '🔗 공유된 링크'로 자동으로 덧붙으니 중복해서 적지 말 것.\n"
         "- 그룹 채팅 메시지 한 개에 적당한 길이로 간결하게. 결정/약속/일정(다음 모임, 읽을 범위 등)은 강조.\n"
         "- 메시지에 없는 내용은 지어내지 말 것. 일부 메시지가 누락됐을 수 있으니 단정적 표현은 피할 것.\n"
         "- 요약 본문만 출력하고 다른 말(설명/머리말)은 붙이지 말 것."
@@ -429,7 +431,7 @@ def kakao_summarize(item: dict, token: str = ""):
         raise HTTPException(status_code=400, detail="room is required")
 
     sys.path.insert(0, KAKAO_SCRIPTS_PATH)
-    from kakao.collector_core import extract_since, select_messages
+    from kakao.collector_core import extract_since, extract_urls, select_messages
 
     since = extract_since(command)
     now = datetime.now(timezone.utc)
@@ -472,5 +474,10 @@ def kakao_summarize(item: dict, token: str = ""):
             status_code=502,
             detail=f"summarize failed rc={proc.returncode}: {proc.stderr.strip()[-500:]}",
         )
+
+    # Append every shared link deterministically so none is dropped by the LLM.
+    urls = extract_urls(selected)
+    if urls:
+        summary = summary + "\n\n🔗 공유된 링크\n" + "\n".join(urls)
 
     return {"ok": True, "count": len(selected), "since": since, "summary": summary}

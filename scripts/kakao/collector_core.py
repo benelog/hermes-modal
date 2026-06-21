@@ -71,6 +71,43 @@ def extract_since(command: str | None) -> str:
     return "1day"
 
 
+_URL_RE = re.compile(r"(?:https?://|www\.)[^\s]+", re.IGNORECASE)
+_URL_TRAILING = ".,;:!?'\"…」』】"
+
+
+def _trim_url(url: str) -> str:
+    """Strip trailing chat punctuation that isn't part of the URL.
+
+    Keeps a closing bracket that has a matching opener inside the URL
+    (e.g. Wikipedia '..._(novel)') but drops an unmatched one left by the
+    surrounding sentence (e.g. '(링크: http://x)').
+    """
+    url = url.rstrip(_URL_TRAILING)
+    while url and url[-1] in ")]}":
+        opener = {")": "(", "]": "[", "}": "{"}[url[-1]]
+        if url.count(opener) >= url.count(url[-1]):
+            break
+        url = url[:-1]
+    return url.rstrip(_URL_TRAILING)
+
+
+def extract_urls(items) -> list[str]:
+    """Collect every URL shared across messages, de-duplicated in first-seen order.
+
+    Deterministic (not LLM-based) so no shared link is dropped from a summary.
+    `items` is an iterable of stored record dicts; reads each record's `text`.
+    """
+    seen = set()
+    urls: list[str] = []
+    for rec in items:
+        for raw in _URL_RE.findall(rec.get("text") or ""):
+            url = _trim_url(raw)
+            if url and url not in seen:
+                seen.add(url)
+                urls.append(url)
+    return urls
+
+
 def normalize_item(payload: dict, received_at: datetime) -> dict:
     """Validate/normalize an ingest payload into a stored record.
 

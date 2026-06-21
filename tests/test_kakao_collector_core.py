@@ -84,6 +84,53 @@ class ExtractSinceTests(unittest.TestCase):
             self.assertGreater(td, timedelta(0))
 
 
+class ExtractUrlsTests(unittest.TestCase):
+    def _msgs(self, *texts):
+        return [{"text": t} for t in texts]
+
+    def test_no_urls_returns_empty(self):
+        self.assertEqual(collector_core.extract_urls(self._msgs("그냥 대화", "책 추천")), [])
+
+    def test_extracts_http_and_https(self):
+        out = collector_core.extract_urls(
+            self._msgs("이거 봐 https://example.com/a", "http://foo.io/b 도")
+        )
+        self.assertEqual(out, ["https://example.com/a", "http://foo.io/b"])
+
+    def test_extracts_www_without_scheme(self):
+        self.assertEqual(
+            collector_core.extract_urls(self._msgs("www.naver.com 참고")),
+            ["www.naver.com"],
+        )
+
+    def test_dedupes_preserving_first_seen_order(self):
+        out = collector_core.extract_urls(
+            self._msgs("https://b.com", "https://a.com", "다시 https://b.com")
+        )
+        self.assertEqual(out, ["https://b.com", "https://a.com"])
+
+    def test_strips_trailing_chat_punctuation(self):
+        out = collector_core.extract_urls(
+            self._msgs("여기 https://example.com/page. 끝", "링크(https://kakao.com)")
+        )
+        self.assertEqual(out, ["https://example.com/page", "https://kakao.com"])
+
+    def test_keeps_balanced_parens_in_url(self):
+        out = collector_core.extract_urls(
+            self._msgs("https://en.wikipedia.org/wiki/Dune_(novel)")
+        )
+        self.assertEqual(out, ["https://en.wikipedia.org/wiki/Dune_(novel)"])
+
+    def test_multiple_urls_in_one_message(self):
+        out = collector_core.extract_urls(
+            self._msgs("https://a.com 그리고 https://b.com")
+        )
+        self.assertEqual(out, ["https://a.com", "https://b.com"])
+
+    def test_ignores_missing_text(self):
+        self.assertEqual(collector_core.extract_urls([{"sender": "a"}, {"text": None}]), [])
+
+
 class NormalizeItemTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 6, 20, 0, 0, tzinfo=timezone.utc)
