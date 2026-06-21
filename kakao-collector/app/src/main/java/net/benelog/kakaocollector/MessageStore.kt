@@ -10,7 +10,7 @@ import android.database.sqlite.SQLiteOpenHelper
  * 감사/디버깅용으로 sent_ok(전송 성공 여부)와 collected_at(수집 시각)도 보관.
  */
 class MessageStore(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "collector.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "collector.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -21,9 +21,15 @@ class MessageStore(context: Context) :
                 "sent_ok INTEGER NOT NULL DEFAULT 0, " +
                 "UNIQUE(room, sender, text, client_time))",
         )
+        // prune(collected_at < ?) 의 보관기간 정리가 풀스캔하지 않도록 인덱스.
+        db.execSQL("CREATE INDEX idx_messages_collected_at ON messages(collected_at)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_collected_at ON messages(collected_at)")
+        }
+    }
 
     /** 새 행이면 rowId(>=0), 이미 있으면 -1. */
     fun recordNew(room: String, sender: String, text: String, clientTime: String, nowMillis: Long): Long {
