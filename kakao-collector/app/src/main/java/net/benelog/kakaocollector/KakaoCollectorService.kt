@@ -176,10 +176,13 @@ class KakaoCollectorService : AccessibilityService() {
                         if (value.startsWith("Replied message") || value.startsWith("Original message")) {
                             return@walk
                         }
-                        // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다(오른쪽 여백 < 왼쪽 여백).
-                        // 우측정렬=내 메시지 → 내 닉네임(ownName), 좌측정렬=남 메시지 → 직전 닉네임(curSender).
+                        // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다.
+                        // 단, 긴 좌측 말풍선도 오른쪽 가장자리까지 뻗을 수 있으므로
+                        // 단순히 오른쪽 여백 < 왼쪽 여백만으로 ownName을 붙이면 오수집된다.
+                        // 충분히 오른쪽에서 시작하는 경우만 내 메시지로 보고, 아니면 직전 닉네임을 쓴다.
                         n.getBoundsInScreen(rect)
-                        val sender = if ((screenW - rect.right) < rect.left) ownName else curSender
+                        val isOwn = SenderClassifier.isClearlyOwnMessage(screenW, rect.left, rect.right)
+                        val sender = if (isOwn) ownName else curSender
                         // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
                         if (sender.isNotEmpty()) {
                             val key = DedupeKey.of(activeRoom, sender, value, curTime)
