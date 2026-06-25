@@ -11,25 +11,30 @@ spec.loader.exec_module(collector_core)
 
 
 class MessageKeyTests(unittest.TestCase):
-    def test_same_message_same_key_regardless_of_received_time(self):
-        a = collector_core.message_key("아카라카북클럽", "홍길동", "안녕", "오후 3:25")
-        b = collector_core.message_key("아카라카북클럽", "홍길동", "안녕", "오후 3:25")
+    def test_same_message_same_key(self):
+        a = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-24")
+        b = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-24")
         self.assertEqual(a, b)
 
     def test_different_text_different_key(self):
-        a = collector_core.message_key("아카라카북클럽", "홍길동", "안녕", "오후 3:25")
-        b = collector_core.message_key("아카라카북클럽", "홍길동", "잘가", "오후 3:25")
+        a = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-24")
+        b = collector_core.message_key("아카라카북클럽", "잘가", "2026-06-24")
+        self.assertNotEqual(a, b)
+
+    def test_different_day_different_key(self):
+        a = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-24")
+        b = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-25")
         self.assertNotEqual(a, b)
 
     def test_key_is_prefixed_with_room(self):
-        key = collector_core.message_key("아카라카북클럽", "홍길동", "안녕", "오후 3:25")
+        key = collector_core.message_key("아카라카북클럽", "안녕", "2026-06-24")
         self.assertTrue(key.startswith("아카라카북클럽|"))
 
     def test_field_boundary_is_unambiguous(self):
         # Fields are joined with a delimiter so shifting a character across a
         # field boundary still produces a different key (guards the dedupe id).
-        a = collector_core.message_key("R", "ab", "c", "x")
-        b = collector_core.message_key("R", "a", "bc", "x")
+        a = collector_core.message_key("R", "ab", "x")
+        b = collector_core.message_key("R", "a", "bx")
         self.assertNotEqual(a, b)
 
 
@@ -154,6 +159,17 @@ class NormalizeItemTests(unittest.TestCase):
         self.assertEqual(rec["client_time"], "오후 3:25")
         self.assertEqual(rec["received_at"], "2026-06-20T00:00:00+00:00")
 
+    def test_strips_reply_prefix_from_text(self):
+        rec = collector_core.normalize_item(
+            {"room": "ABC", "sender": "추정하", "text": "답장 메시지 파란책 내용 좋네요."},
+            self.now,
+        )
+        self.assertEqual(rec["text"], "파란책 내용 좋네요.")
+
+    def test_text_blank_after_stripping_prefix_raises(self):
+        with self.assertRaises(ValueError):
+            collector_core.normalize_item({"room": "ABC", "text": "답장 메시지   "}, self.now)
+
 
 class SelectMessagesTests(unittest.TestCase):
     def setUp(self):
@@ -192,6 +208,105 @@ class ExpiredKeysTests(unittest.TestCase):
             ("k_new", {"received_at": (now - timedelta(days=1)).isoformat()}),
         ]
         self.assertEqual(collector_core.expired_keys(items, now, retention_days=14), ["k_old"])
+
+
+class CleanTextTests(unittest.TestCase):
+    def test_strips_korean_reply_prefix(self):
+        self.assertEqual(
+            collector_core.clean_text("답장 메시지 파란책 내용 좋네요."), "파란책 내용 좋네요."
+        )
+
+    def test_trims_whitespace_around_and_after_prefix(self):
+        self.assertEqual(collector_core.clean_text("  답장 메시지   안녕 "), "안녕")
+
+    def test_leaves_plain_text(self):
+        self.assertEqual(collector_core.clean_text("그냥 메시지"), "그냥 메시지")
+
+    def test_blank_and_none(self):
+        self.assertEqual(collector_core.clean_text(""), "")
+        self.assertEqual(collector_core.clean_text(None), "")
+
+
+class ExtendsTests(unittest.TestCase):
+    def test_longer_continuation_extends_shorter(self):
+        self.assertTrue(
+            collector_core.extends("오픈은 10시더라고 정말로", "오픈은 10시더라고 정말로 그래서 줄섰다")
+        )
+
+    def test_too_short_prefix_is_not_confident(self):
+        self.assertFalse(collector_core.extends("안녕", "안녕 반가워요 오랜만입니다"))
+
+    def test_strips_trailing_ellipsis_before_compare(self):
+        self.assertTrue(
+            collector_core.extends("충분히 긴 시작 문장인데…", "충분히 긴 시작 문장인데 계속 이어집니다")
+        )
+
+    def test_non_prefix_is_not_extension(self):
+        self.assertFalse(collector_core.extends("완전히 다른 시작 문장", "전혀 관계 없는 다른 문장"))
+
+    def test_equal_is_not_extension(self):
+        self.assertFalse(collector_core.extends("같은 길이의 문장입니다요", "같은 길이의 문장입니다요"))
+
+    def test_first_arg_must_be_the_shorter(self):
+        self.assertFalse(
+            collector_core.extends("충분히 긴 시작 문장인데 계속 이어집니다", "충분히 긴 시작 문장인데")
+        )
+
+
+class PlanIngestTests(unittest.TestCase):
+    def _rec(self, text, room="ABC", sender="s", ct="2026-06-24",
+             ra="2026-06-24T00:00:00+00:00"):
+        return {"room": room, "sender": sender, "text": text,
+                "client_time": ct, "received_at": ra}
+
+    def test_empty_store_stores(self):
+        plan = collector_core.plan_ingest([], self._rec("새 메시지"), "K")
+        self.assertEqual(plan["action"], "store")
+        self.assertEqual(plan["key"], "K")
+
+    def test_exact_same_text_and_day_skips(self):
+        e = self._rec("동일한 메시지")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("동일한 메시지"), "K")
+        self.assertEqual(plan["action"], "skip")
+        self.assertEqual(plan["key"], "E")
+
+    def test_same_text_different_day_stores(self):
+        e = self._rec("동일한 메시지", ct="2026-06-24")
+        plan = collector_core.plan_ingest(
+            [("E", e)], self._rec("동일한 메시지", ct="2026-06-25"), "K"
+        )
+        self.assertEqual(plan["action"], "store")
+
+    def test_extension_updates_existing_in_place(self):
+        e = self._rec("오픈은 10시더라고 정말로", ra="2026-06-24T01:00:00+00:00")
+        plan = collector_core.plan_ingest(
+            [("E", e)], self._rec("오픈은 10시더라고 정말로 그래서 줄섰다"), "K"
+        )
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["key"], "E")  # keep existing slot => received_at preserved
+        self.assertEqual(plan["rec"]["text"], "오픈은 10시더라고 정말로 그래서 줄섰다")
+        self.assertEqual(plan["rec"]["received_at"], "2026-06-24T01:00:00+00:00")
+
+    def test_truncated_incoming_skips_when_fuller_exists(self):
+        e = self._rec("오픈은 10시더라고 정말로 그래서 줄섰다")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("오픈은 10시더라고 정말로"), "K")
+        self.assertEqual(plan["action"], "skip")
+        self.assertEqual(plan["key"], "E")
+
+    def test_no_merge_across_rooms(self):
+        e = self._rec("오픈은 10시더라고 정말로", room="OTHER")
+        plan = collector_core.plan_ingest(
+            [("E", e)], self._rec("오픈은 10시더라고 정말로 그래서 줄섰다", room="ABC"), "K"
+        )
+        self.assertEqual(plan["action"], "store")
+
+    def test_update_fills_missing_sender(self):
+        e = self._rec("오픈은 10시더라고 정말로", sender="")
+        plan = collector_core.plan_ingest(
+            [("E", e)], self._rec("오픈은 10시더라고 정말로 그래서 줄섰다", sender="지민경"), "K"
+        )
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["rec"]["sender"], "지민경")
 
 
 if __name__ == "__main__":

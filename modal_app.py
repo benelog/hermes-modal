@@ -293,16 +293,26 @@ def kakao_ingest(item: dict, token: str = ""):
         raise HTTPException(status_code=401, detail="unauthorized")
 
     sys.path.insert(0, KAKAO_SCRIPTS_PATH)
-    from kakao.collector_core import message_key, normalize_item
+    from kakao.collector_core import message_key, normalize_item, plan_ingest
 
     try:
         rec = normalize_item(item, datetime.now(timezone.utc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    key = message_key(rec["room"], rec["sender"], rec["text"], rec["client_time"])
-    kakao_dict[key] = rec
-    return {"ok": True, "key": key}
+    # Dedupe key excludes sender (heuristic, flips between scrapes). Then merge
+    # truncation/edit variants in place against what's stored, so a message is
+    # kept once at its earliest received_at (= conversation order) with its
+    # fullest text. plan_ingest scans the dict; ingest is low-frequency because
+    # the device already dedupes locally before POSTing.
+    key = message_key(rec["room"], rec["text"], rec["client_time"])
+    plan = plan_ingest(list(kakao_dict.items()), rec, key)
+    if plan["action"] == "store":
+        kakao_dict[plan["key"]] = rec
+    elif plan["action"] == "update":
+        kakao_dict[plan["key"]] = plan["rec"]
+    # "skip": an equal or fuller copy is already stored — leave it untouched.
+    return {"ok": True, "action": plan["action"], "key": plan["key"]}
 
 
 @app.function(

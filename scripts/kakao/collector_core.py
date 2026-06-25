@@ -11,16 +11,95 @@ import re
 from datetime import datetime, timedelta, timezone
 
 
-def message_key(room: str, sender: str, text: str, client_time: str) -> str:
-    """Stable dedupe id for one message.
+def message_key(room: str, text: str, client_time: str) -> str:
+    """Stable dedupe id for one message: room + text + client_time.
 
     Excludes server receive time so the same message re-scraped later collides
-    and is stored once. `client_time` is the time string KakaoTalk shows (minute
-    granularity), disambiguating otherwise-identical lines within a day.
+    and is stored once. `client_time` is the date KakaoTalk shows (day
+    granularity — the minute clock isn't exposed to accessibility), keeping
+    same-text-different-day lines distinct.
+
+    Sender is intentionally NOT part of the key: the collector's speaker
+    attribution is heuristic and can flip between scrapes (a message whose
+    nickname has scrolled off-screen, or a borderline own/other bubble), so
+    including it would let one message be stored several times under different
+    guessed speakers. Dropping it makes a mis-attributed re-scrape collide
+    with the original instead of duplicating it.
     """
-    raw = "\x01".join([room or "", sender or "", text or "", client_time or ""])
+    raw = "\x01".join([room or "", text or "", client_time or ""])
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()
     return f"{room}|{digest}"
+
+
+_REPLY_PREFIX_RE = re.compile(r"^\s*답장 메시지\s+")
+_TRUNC_TAIL_RE = re.compile(r"(?:\.\.\.|…|더\s*보기)\s*$")
+
+
+def clean_text(text) -> str:
+    """Normalize a scraped message body.
+
+    Strips KakaoTalk's reply-content prefix ('답장 메시지 …') and surrounding
+    whitespace. The body after the prefix is the actual reply text (verified
+    against the corpus: it is never a standalone quoted original), so we keep
+    it and drop only the label.
+    """
+    return _REPLY_PREFIX_RE.sub("", text or "").strip()
+
+
+def _trunc_core(text) -> str:
+    return _TRUNC_TAIL_RE.sub("", (text or "")).rstrip()
+
+
+def extends(shorter: str, longer: str, min_len: int = 12) -> bool:
+    """True if `longer` is a fuller version of `shorter` — the same message
+    captured more completely (a '…더보기' truncation expanded, or an edited
+    '꼬리 달기' list grown). Compares on `shorter` with any trailing '…/더보기'
+    removed and requires a confident prefix length so two genuinely different
+    messages that happen to share a short opening are not merged.
+    """
+    s = _trunc_core(shorter)
+    if len(s) < min_len or len(longer) <= len(s):
+        return False
+    return longer.startswith(s)
+
+
+def _ct_compatible(a: str, b: str) -> bool:
+    """Two client_times may belong to the same message if equal, or if either
+    is blank (legacy rows / pre-date-feature) — never merge across known days."""
+    return a == b or not a or not b
+
+
+def plan_ingest(items_with_keys, new_rec: dict, new_key: str) -> dict:
+    """Decide how to store an incoming record against what is already stored,
+    so each message is kept once, at its earliest position, with its fullest text.
+
+    `items_with_keys` is an iterable of (key, record) pairs. Returns one of:
+      {"action": "store",  "key": new_key}                 — brand new message
+      {"action": "skip",   "key": existing_key}            — exact dup, or incoming is a truncated copy
+      {"action": "update", "key": existing_key, "rec": …}  — incoming extends a shorter stored copy;
+                                                              caller writes `rec` under existing_key,
+                                                              preserving its received_at (= order)
+    """
+    room = new_rec.get("room")
+    ntext = new_rec.get("text") or ""
+    nct = new_rec.get("client_time") or ""
+    for key, rec in items_with_keys:
+        if rec.get("room") != room:
+            continue
+        etext = rec.get("text") or ""
+        ect = rec.get("client_time") or ""
+        if etext == ntext and ect == nct:
+            return {"action": "skip", "key": key}  # same message already stored
+        if _ct_compatible(ect, nct):
+            if extends(etext, ntext):  # stored copy is shorter → fill it in, keep its slot
+                merged = dict(rec)
+                merged["text"] = ntext
+                if not (merged.get("sender") or "").strip():
+                    merged["sender"] = new_rec.get("sender", "")
+                return {"action": "update", "key": key, "rec": merged}
+            if extends(ntext, etext):  # incoming is the truncated one → drop it
+                return {"action": "skip", "key": key}
+    return {"action": "store", "key": new_key}
 
 
 def parse_since_to_timedelta(since: str | None) -> timedelta:
@@ -114,15 +193,15 @@ def normalize_item(payload: dict, received_at: datetime) -> dict:
     Raises ValueError if required fields (room, text) are missing/blank.
     """
     room = (payload.get("room") or "").strip()
-    text = payload.get("text")
+    text = clean_text(payload.get("text"))
     if not room:
         raise ValueError("room is required")
-    if text is None or str(text).strip() == "":
+    if not text:
         raise ValueError("text is required")
     return {
         "room": room,
         "sender": (payload.get("sender") or "").strip(),
-        "text": str(text),
+        "text": text,
         "client_time": (payload.get("client_time") or payload.get("ts") or "").strip(),
         "received_at": received_at.astimezone(timezone.utc).isoformat(),
     }
