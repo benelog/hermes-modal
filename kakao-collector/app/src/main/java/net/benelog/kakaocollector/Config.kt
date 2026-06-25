@@ -36,8 +36,14 @@ object Config {
     /** 보낸이 이름 노드 id. (실측: name이 아니라 nickname) */
     const val NAME_ID = "com.kakao.talk:id/nickname"
 
-    /** 시각 노드 id. (실측: created_at이 아니라 time. 단, 시각은 접근성에 거의 노출 안 됨) */
+    /** 시각 노드 id. (실측: created_at이 아니라 time. 단, 분 단위 시각은 접근성에 사실상 노출 안 됨 → 죽은 설정) */
     const val TIME_ID = "com.kakao.talk:id/time"
+
+    /**
+     * 날짜 구분 노드 id(일 단위, 요일 포함 "2026. 06. 24. Wed"). 분 시각이 접근성에 노출되지 않아
+     * 대신 이 날짜를 메시지에 결합해 client_time 에 담는다(sticky 뱃지 + 있으면 인라인 구분선).
+     */
+    const val DATE_INDICATOR_ID = "com.kakao.talk:id/chat_log_recycler_date_indicator"
 
     /** 방 제목 노드 id(방 열 때만 text로 뜸, 폴백용). (실측: 방 상단 제목은 id/name 노드에 들어감) */
     const val TITLE_ID = "com.kakao.talk:id/name"

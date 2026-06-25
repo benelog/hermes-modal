@@ -21,16 +21,20 @@ object Uploader {
     fun recentKeys(limit: Int): Set<String> =
         if (::store.isInitialized) store.recentKeys(limit) else emptySet()
 
-    /** 수집 메시지 제출: DB 기록 → 새 행이면 POST → 성공 시 sent_ok. 중복이면 아무것도 안 함. */
+    /**
+     * 수집 메시지 제출: DB 기록/병합 → 새 행이거나 잘림→완전 갱신이면 POST(완전한 본문) → 성공 시 sent_ok.
+     * 잘린 본문이 이미 더 완전한 행으로 있으면(SKIPPED) 아무것도 안 한다. 갱신 시에도 완전한 본문을 보내
+     * 서버가 같은 레코드를 제자리(received_at 유지=순서 보존)에서 합치게 한다.
+     */
     fun submit(room: String, sender: String, text: String, ts: String) {
         exec.execute {
             try {
-                val id = store.recordNew(room, sender, text, ts, System.currentTimeMillis())
-                if (id < 0) return@execute // 중복
+                val r = store.recordOrMerge(room, sender, text, ts, System.currentTimeMillis())
+                if (r.outcome == MessageStore.Outcome.SKIPPED) return@execute
                 val ok = Poster.post(
                     JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ts),
                 )
-                if (ok) store.markSent(id)
+                if (ok) store.markSent(r.rowId)
             } catch (e: Exception) {
                 // 예외로 executor 스레드가 조용히 죽지 않게(다음 제출은 계속). DB 미기록분은 재시작 후 재시도됨.
                 Log.w(KakaoCollectorService.TAG, "uploader submit failed: ${e.message}")

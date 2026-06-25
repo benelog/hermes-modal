@@ -21,6 +21,7 @@ object Settings {
     private const val KEY_MSG_ID = "msg_id"
     private const val KEY_NAME_ID = "name_id"
     private const val KEY_TIME_ID = "time_id"
+    private const val KEY_DATE_INDICATOR_ID = "date_indicator_id"
     private const val KEY_TITLE_ID = "title_id"
     private const val KEY_MENTION_KEYWORD = "mention_keyword"
     private const val KEY_SUMMARY_KEYWORD = "summary_keyword"
@@ -86,6 +87,11 @@ object Settings {
     var timeId: String
         get() = get(KEY_TIME_ID, Config.TIME_ID)
         set(v) = prefs.edit().putString(KEY_TIME_ID, v).apply()
+
+    /** 날짜 구분 노드 id(메시지에 일자 결합용). 분 시각 미노출의 대체 수단. */
+    var dateIndicatorId: String
+        get() = get(KEY_DATE_INDICATOR_ID, Config.DATE_INDICATOR_ID)
+        set(v) = prefs.edit().putString(KEY_DATE_INDICATOR_ID, v).apply()
 
     var titleId: String
         get() = get(KEY_TITLE_ID, Config.TITLE_ID)

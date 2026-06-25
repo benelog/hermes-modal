@@ -139,66 +139,91 @@ class KakaoCollectorService : AccessibilityService() {
         return roots
     }
 
+    /** PASS 1에서 모으는 메시지 후보(본문 + 말풍선 좌표). 날짜·보낸이는 PASS 2에서 좌표로 결합. */
+    private data class Pending(
+        val text: String,
+        val left: Int,
+        val right: Int,
+        val top: Int,
+        val bottom: Int,
+    )
+
     /**
-     * 현재 화면의 말풍선을 수집한다. 동시에 '맨 아래(최신) 새 메시지'를 추적해, allowTrigger면
-     * 그 메시지가 멘션 요약 명령인지 판정한다(스크롤/방열기에선 allowTrigger=false라 발화 안 함).
+     * 현재 화면의 말풍선을 2-pass로 수집한다.
+     *  PASS 1: 메시지(본문+좌표)·닉네임(top Y)·날짜 마커(top Y)를 모은다(즉시 submit 안 함).
+     *  PASS 2: 좌표로 각 메시지의 날짜([DateAssigner])와 보낸이([SenderAssigner])를 정하고,
+     *          sender 를 뺀 dedupe 키로 1차 차단 후 [Uploader.submit]. 보낸이를 못 정하면(닉네임이
+     *          화면 밖) 그 메시지는 스킵 — 다음 스크롤에서 닉네임과 함께 보일 때 잡혀 오귀속/중복을 막는다.
+     * 동시에 '맨 아래(최신) 새 메시지'를 추적해 allowTrigger면 멘션 요약 명령인지 판정한다.
      */
     private fun scrape(allowTrigger: Boolean) {
         val ownName = Settings.ownName
         val nameId = Settings.nameId
-        val timeId = Settings.timeId
         val msgId = Settings.msgId
+        val dateId = Settings.dateIndicatorId
         val screenW = resources.displayMetrics.widthPixels
         val rect = android.graphics.Rect()
 
         val roots = collectRoots()
 
-        // 화면에서 가장 아래(가장 최신)에 보이는 말풍선 추적: 트리거 판정 대상.
-        var bottomY = Int.MIN_VALUE
-        var bottomText = ""
-        var bottomIsNew = false
-
-        var newCount = 0
+        // PASS 1 — 좌표와 함께 모은다.
+        val pending = ArrayList<Pending>()
+        val nicks = ArrayList<SenderAssigner.NickMarker>()
+        val dateMarkers = ArrayList<DateAssigner.Marker>()
         for (root in roots) {
-            // 보낸이/시각은 같은 트리 안에서 말풍선보다 먼저 나오므로 윈도우(트리)마다 초기화.
-            var curSender = ""
-            var curTime = ""
             walk(root) { n ->
                 val id = n.viewIdResourceName ?: ""
                 // 카톡이 본문/닉네임을 text가 아니라 contentDescription에 두기도 한다 → text 우선, 없으면 cd.
                 val value = nodeValue(n)
                 if (value.isEmpty()) return@walk
                 when {
-                    nameId.isNotEmpty() && id == nameId -> curSender = value
-                    timeId.isNotEmpty() && id == timeId -> curTime = value
+                    nameId.isNotEmpty() && id == nameId -> {
+                        n.getBoundsInScreen(rect)
+                        nicks.add(SenderAssigner.NickMarker(top = rect.top, name = value))
+                    }
+                    dateId.isNotEmpty() && id == dateId -> {
+                        val date = KakaoDate.normalize(value)
+                        if (date.isNotEmpty()) {
+                            n.getBoundsInScreen(rect)
+                            dateMarkers.add(DateAssigner.Marker(top = rect.top, date = date))
+                        }
+                    }
                     msgId.isNotEmpty() && id == msgId -> {
-                        // 답장에 인용된 원문은 'Replied/Original message ...'로 와서 중복이므로 건너뜀.
+                        // 답장에 인용된 원문(영문 UI)은 중복이므로 건너뜀.
                         if (value.startsWith("Replied message") || value.startsWith("Original message")) {
                             return@walk
                         }
-                        // 내 메시지엔 닉네임이 안 뜨고 '우측 정렬'된다.
-                        // 단, 긴 좌측 말풍선도 오른쪽 가장자리까지 뻗을 수 있으므로
-                        // 단순히 오른쪽 여백 < 왼쪽 여백만으로 ownName을 붙이면 오수집된다.
-                        // 충분히 오른쪽에서 시작하는 경우만 내 메시지로 보고, 아니면 직전 닉네임을 쓴다.
+                        // "답장 메시지 " 접두는 떼고 본문(=실제 답글)만 둔다. 빈 본문은 스킵.
+                        val text = KakaoText.clean(value)
+                        if (text.isEmpty()) return@walk
                         n.getBoundsInScreen(rect)
-                        val isOwn = SenderClassifier.isClearlyOwnMessage(screenW, rect.left, rect.right)
-                        val sender = if (isOwn) ownName else curSender
-                        // 보낸이를 모르면(내 닉네임 미설정/남 메시지인데 닉네임 화면밖) 건너뜀.
-                        if (sender.isNotEmpty()) {
-                            val key = DedupeKey.of(activeRoom, sender, value, curTime)
-                            val isNew = firstSeen(key)
-                            if (isNew) {
-                                newCount++
-                                Uploader.submit(activeRoom, sender, value, curTime)
-                            }
-                            if (rect.bottom > bottomY) {
-                                bottomY = rect.bottom
-                                bottomText = value
-                                bottomIsNew = isNew
-                            }
-                        }
+                        pending.add(Pending(text = text, left = rect.left, right = rect.right, top = rect.top, bottom = rect.bottom))
                     }
                 }
+            }
+        }
+
+        // PASS 2 — 날짜·보낸이 결합 후 dedupe & submit.
+        val dates = DateAssigner.assign(dateMarkers, pending.map { it.top })
+        var newCount = 0
+        var bottomY = Int.MIN_VALUE
+        var bottomText = ""
+        var bottomIsNew = false
+        for ((i, p) in pending.withIndex()) {
+            val date = dates[i]
+            val sender = SenderAssigner.assign(screenW, p.left, p.right, p.top, ownName, nicks)
+            val key = DedupeKey.of(activeRoom, p.text, date)
+            val isNew = !seen.contains(key)
+            if (sender != null && isNew) {
+                firstSeen(key) // seen에 추가(+상한 정리)
+                newCount++
+                Uploader.submit(activeRoom, sender, p.text, date)
+            }
+            // 트리거는 본문만 보므로 보낸이 미상 메시지도 bottom 후보엔 넣되, '새 발화'는 수집된 경우만.
+            if (p.bottom > bottomY) {
+                bottomY = p.bottom
+                bottomText = p.text
+                bottomIsNew = isNew && sender != null
             }
         }
         if (newCount > 0) Log.i(TAG, "posted $newCount new message(s)")
