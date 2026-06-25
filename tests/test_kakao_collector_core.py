@@ -300,6 +300,25 @@ class PlanIngestTests(unittest.TestCase):
         )
         self.assertEqual(plan["action"], "store")
 
+    def test_dateless_existing_upgraded_by_dated_incoming(self):
+        # empty→date transition: a stored dateless copy is upgraded in place, not duplicated.
+        e = self._rec("좋은 아침입니다 여러분", ct="", ra="2026-06-24T01:00:00+00:00")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26"), "K")
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["key"], "E")
+        self.assertEqual(plan["rec"]["client_time"], "2026-06-26")
+        self.assertEqual(plan["rec"]["received_at"], "2026-06-24T01:00:00+00:00")
+
+    def test_dated_existing_not_duplicated_by_dateless_incoming(self):
+        e = self._rec("좋은 아침입니다 여러분", ct="2026-06-26")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct=""), "K")
+        self.assertEqual(plan["action"], "skip")
+
+    def test_same_text_two_known_days_kept_separate(self):
+        e = self._rec("좋은 아침입니다 여러분", ct="2026-06-25")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26"), "K")
+        self.assertEqual(plan["action"], "store")
+
     def test_update_fills_missing_sender(self):
         e = self._rec("오픈은 10시더라고 정말로", sender="")
         plan = collector_core.plan_ingest(

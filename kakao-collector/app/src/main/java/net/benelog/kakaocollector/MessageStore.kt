@@ -51,6 +51,8 @@ class MessageStore(context: Context) :
     fun recordOrMerge(room: String, sender: String, text: String, clientTime: String, nowMillis: Long): Result {
         val db = writableDatabase
         var updateId = -1L
+        var updText = text
+        var updCt = clientTime
         var skip = false
         db.query(
             "messages", arrayOf("_id", "text", "client_time"),
@@ -60,13 +62,22 @@ class MessageStore(context: Context) :
                 val id = c.getLong(0)
                 val etext = c.getString(1) ?: ""
                 val ect = c.getString(2) ?: ""
+                if (etext == text) {
+                    if (ect == clientTime) { skip = true; break } // 정확 중복
+                    if (ctCompatible(ect, clientTime)) {
+                        // 빈 날짜→날짜 전환: 같은 메시지. 기존 행의 날짜만 제자리 업그레이드(중복 X).
+                        if (ect.isEmpty() && clientTime.isNotEmpty()) { updateId = id; updCt = clientTime; break }
+                        skip = true; break // 기존이 이미 날짜 있음(또는 둘 다 빈값)
+                    }
+                    continue // 같은 본문, 다른 '아는' 날 → 다른 메시지
+                }
                 if (!ctCompatible(ect, clientTime)) continue
-                if (KakaoText.extends(etext, text)) { updateId = id; break } // 기존이 짧음 → 채워 넣기
+                if (KakaoText.extends(etext, text)) { updateId = id; updCt = ect; break } // 기존이 짧음 → 채워 넣기
                 if (KakaoText.extends(text, etext)) { skip = true; break } // 들어온 게 잘린 것 → 버림
             }
         }
         if (updateId >= 0) {
-            updateText(updateId, text)
+            updateRow(updateId, updText, updCt)
             return Result(Outcome.UPDATED, updateId)
         }
         if (skip) return Result(Outcome.SKIPPED, -1)
@@ -83,11 +94,11 @@ class MessageStore(context: Context) :
         return if (id >= 0) Result(Outcome.INSERTED, id) else Result(Outcome.SKIPPED, -1)
     }
 
-    /** 잘렸던 본문을 더 완전한 본문으로 in-place 갱신(순서 보존). 재전송 위해 sent_ok 초기화. */
-    private fun updateText(rowId: Long, text: String) {
+    /** 기존 행을 더 완전한 본문/날짜로 in-place 갱신(순서 보존). 재전송 위해 sent_ok 초기화. */
+    private fun updateRow(rowId: Long, text: String, clientTime: String) {
         writableDatabase.update(
             "messages",
-            ContentValues().apply { put("text", text); put("sent_ok", 0) },
+            ContentValues().apply { put("text", text); put("client_time", clientTime); put("sent_ok", 0) },
             "_id=?", arrayOf(rowId.toString()),
         )
     }

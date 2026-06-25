@@ -88,8 +88,17 @@ def plan_ingest(items_with_keys, new_rec: dict, new_key: str) -> dict:
             continue
         etext = rec.get("text") or ""
         ect = rec.get("client_time") or ""
-        if etext == ntext and ect == nct:
-            return {"action": "skip", "key": key}  # same message already stored
+        if etext == ntext:
+            if ect == nct:
+                return {"action": "skip", "key": key}  # exact same message already stored
+            if _ct_compatible(ect, nct):
+                # Same text, one side has no date yet (the empty→date transition): same
+                # message. Upgrade a stored dateless row to the dated version in place
+                # (keeps received_at) instead of creating a second copy.
+                if not ect and nct:
+                    return {"action": "update", "key": key, "rec": {**rec, "client_time": nct}}
+                return {"action": "skip", "key": key}  # stored already dated (or both blank)
+            continue  # same text but different known days → not this row; keep scanning
         if _ct_compatible(ect, nct):
             if extends(etext, ntext):  # stored copy is shorter → fill it in, keep its slot
                 merged = dict(rec)

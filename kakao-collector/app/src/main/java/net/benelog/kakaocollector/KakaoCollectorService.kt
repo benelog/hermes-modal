@@ -27,6 +27,8 @@ class KakaoCollectorService : AccessibilityService() {
     companion object {
         const val TAG = "KakaoCollector"
         private const val MIN_INTERVAL_MS = 500L
+        // 스크롤이 멈춘 뒤 이 시간만큼 지나면 수집(스크롤 중 흔들리는 좌표로 오정렬하는 것 방지).
+        private const val SCROLL_SETTLE_MS = 250L
         private const val SEEN_CAP = 3000
         private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30일
         // 요약문 발신: 텍스트 입력 후 카톡이 전송 버튼을 활성화할 시간을 준다.
@@ -45,6 +47,11 @@ class KakaoCollectorService : AccessibilityService() {
     private var activeRoom = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    // 스크롤이 멈춘 뒤 한 번 수집한다 — 스크롤 중 프레임은 말풍선 bounds가 흔들려 내/남 정렬 오판 위험.
+    private val settleRunnable = Runnable {
+        lastRun = System.currentTimeMillis()
+        handle(allowTrigger = false)
+    }
     // 방별 마지막 트리거 시각(쿨다운 — scrape·알림 경로의 중복/이중 발신 방지).
     private val lastTrigger = ConcurrentHashMap<String, Long>()
     // 처리한 알림 키(같은 알림이 여러 번 와도 1회만 트리거).
@@ -67,15 +74,18 @@ class KakaoCollectorService : AccessibilityService() {
             // 화면 전환(방 열기)은 방 판별 기준점이라 레이트리밋 없이 처리. 단, 방을 '여는' 순간
             // 맨 아래에 오래전 명령이 있어도 발화하지 않도록 트리거는 허용하지 않는다(수집만).
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> handle(allowTrigger = false)
-            // 스크롤/내용변경은 폭주하므로 레이트리밋. 트리거는 '새 메시지 도착'을 뜻하는
-            // CONTENT_CHANGED 일 때만 허용(스크롤 백필로 옛 명령이 재발화하는 것 방지).
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            -> {
+            // 새 메시지 도착(CONTENT_CHANGED)은 화면이 안정된 상태라 즉시 수집하고 트리거도 허용.
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 val now = System.currentTimeMillis()
                 if (now - lastRun < MIN_INTERVAL_MS) return
                 lastRun = now
-                handle(allowTrigger = event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+                handle(allowTrigger = true)
+            }
+            // 스크롤은 멈춘 뒤(settle) 한 번만 수집한다. 스크롤 중 프레임의 흔들리는 bounds로
+            // 남 메시지를 내 것으로 오판(→오수집)하는 것을 막는다. 트리거는 스크롤에선 불허(백필 재발화 방지).
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                mainHandler.removeCallbacks(settleRunnable)
+                mainHandler.postDelayed(settleRunnable, SCROLL_SETTLE_MS)
             }
         }
     }
@@ -161,10 +171,19 @@ class KakaoCollectorService : AccessibilityService() {
         val nameId = Settings.nameId
         val msgId = Settings.msgId
         val dateId = Settings.dateIndicatorId
-        val screenW = resources.displayMetrics.widthPixels
         val rect = android.graphics.Rect()
 
         val roots = collectRoots()
+        // 화면폭은 말풍선 bounds와 '같은 좌표계'여야 내/남 정렬 판정이 맞다. 디스플레이 크기/밀도
+        // override가 걸리면 displayMetrics.widthPixels가 getBoundsInScreen 좌표계와 어긋나
+        // 남 메시지를 내 것으로 오판할 수 있으므로, 창 루트 bounds 폭(스크린 좌표계)을 쓴다.
+        var screenW = 0
+        for (r in roots) {
+            val rr = android.graphics.Rect()
+            r.getBoundsInScreen(rr)
+            if (rr.width() > screenW) screenW = rr.width()
+        }
+        if (screenW <= 0) screenW = resources.displayMetrics.widthPixels
 
         // PASS 1 — 좌표와 함께 모은다.
         val pending = ArrayList<Pending>()
