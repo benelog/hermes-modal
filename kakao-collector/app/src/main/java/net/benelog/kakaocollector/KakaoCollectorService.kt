@@ -52,6 +52,13 @@ class KakaoCollectorService : AccessibilityService() {
         lastRun = System.currentTimeMillis()
         handle(allowTrigger = false)
     }
+    // 새 메시지 도착(CONTENT_CHANGED)도 삽입+하단 스크롤 애니메이션으로 bounds가 흔들리므로
+    // 즉시 수집하지 않고 settle 후 1회 수집한다(스크롤과 동일 이유 — 내/남 오정렬=오수집 방지).
+    // 트리거는 허용(멘션 요약은 settle 직후 발화; +250ms 지연은 무방).
+    private val contentSettleRunnable = Runnable {
+        lastRun = System.currentTimeMillis()
+        handle(allowTrigger = true)
+    }
     // 방별 마지막 트리거 시각(쿨다운 — scrape·알림 경로의 중복/이중 발신 방지).
     private val lastTrigger = ConcurrentHashMap<String, Long>()
     // 처리한 알림 키(같은 알림이 여러 번 와도 1회만 트리거).
@@ -74,12 +81,15 @@ class KakaoCollectorService : AccessibilityService() {
             // 화면 전환(방 열기)은 방 판별 기준점이라 레이트리밋 없이 처리. 단, 방을 '여는' 순간
             // 맨 아래에 오래전 명령이 있어도 발화하지 않도록 트리거는 허용하지 않는다(수집만).
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> handle(allowTrigger = false)
-            // 새 메시지 도착(CONTENT_CHANGED)은 화면이 안정된 상태라 즉시 수집하고 트리거도 허용.
+            // 새 메시지 도착(CONTENT_CHANGED): 삽입/하단 스크롤 애니메이션이 끝난 뒤(settle) 수집한다.
+            // 즉시 수집하면 흔들리는 bounds로 남 말풍선을 내것으로 오판(오수집)한다. rate-limit으로
+            // anchor를 잡아(연속 변경에도 무한 연기 방지) settle 시각을 미뤄 애니메이션을 흘려보낸다.
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
                 val now = System.currentTimeMillis()
                 if (now - lastRun < MIN_INTERVAL_MS) return
                 lastRun = now
-                handle(allowTrigger = true)
+                mainHandler.removeCallbacks(contentSettleRunnable)
+                mainHandler.postDelayed(contentSettleRunnable, SCROLL_SETTLE_MS)
             }
             // 스크롤은 멈춘 뒤(settle) 한 번만 수집한다. 스크롤 중 프레임의 흔들리는 bounds로
             // 남 메시지를 내 것으로 오판(→오수집)하는 것을 막는다. 트리거는 스크롤에선 불허(백필 재발화 방지).
