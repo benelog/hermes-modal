@@ -15,27 +15,18 @@ Android Accessibility collection can misclassify a long left-side bubble as the 
 
 ## Server deletion pattern
 
-The Modal store is `modal.Dict.from_name("kakao-collect")`. Current server keys are generated the same way as `scripts/kakao/collector_core.py::message_key`: `room + sha1(room, text, client_time)`, **excluding sender**. Older notes or deployed code may differ, so the safest cleanup is to iterate the dict and match narrowly on the stored record fields rather than guessing a key:
+The Modal store is `modal.Dict.from_name("kakao-collect")`. Keys are generated the same way as `scripts/kakao/collector_core.py::message_key`:
 
 ```python
-import modal
+import hashlib
 
-bad_texts = {"exact bad message body", ...}
-d = modal.Dict.from_name("kakao-collect", create_if_missing=False)
-matched = []
-for key, rec in list(d.items()):
-    if (
-        rec.get("room") == "ABC(아카라카북클럽)"
-        and rec.get("sender") == "정상혁"
-        and rec.get("text") in bad_texts
-    ):
-        matched.append(key)
-for key in matched:
-    d.pop(key, None)  # use pop, not Dict.delete
-print("deleted", len(matched))
+def message_key(room: str, sender: str, text: str, client_time: str) -> str:
+    raw = "\x01".join([room or "", sender or "", text or "", client_time or ""])
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return f"{room}|{digest}"
 ```
 
-Verify by refetching the same window and confirming the bad texts / suspect sender count are gone. Because sender is excluded from the dedupe key and the Android app also keeps local seen keys, deleting server rows does not force a corrected recapture from the device; if the exact messages must be recaptured under the real sender, clear/prune the collector app's local DB or reinstall the app after deploying the fixed collector.
+For each bad own-name duplicate, compute the key from `room`, `sender`, `text`, and `client_time`, then `del kakao_dict[key]`. Verify by refetching the same window and confirming the duplicate-own-name count is zero.
 
 ## Android-side fix pattern
 
