@@ -49,3 +49,4 @@ See also: `references/explicit-date-band-format.md` for a concrete workflow for 
 - 메시지 유실 가능성(디바이스가 방을 연 범위만 수집)을 전제로, 단정적 표현을 피한다.
 - 기간(`since`)은 메시지 "전송 시각"이 아니라 "수집 시각" 기준이다. 즉 오래된 메시지를
   오늘 처음 스크롤해 수집했다면 "오늘" 요약에도 포함될 수 있다. "지난 N일 수집분"으로 이해한다.
+- 날짜 범위를 직접 필터링해야 할 때는 `client_time`이 아니라 `received_at`을 KST(Asia/Seoul)로 변환한 날짜를 기준으로 삼는다. `client_time`은 빈 값이 많아 이 필드로 필터링하면 특정 날짜 수집분이 대량 누락될 수 있다.
