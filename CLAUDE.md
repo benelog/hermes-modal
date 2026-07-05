@@ -20,6 +20,10 @@ Zero-cost personal bot stack on Modal: Hermes Telegram gateway + qmd knowledge s
 - `android-build` — gradle build/test/install incl. post-install a11y re-enable
 - `kakao-data-auditor` — 오수집 audit of phone DB + Modal Dict (plan-only)
 
+## Skills (.claude/skills/)
+- `kakao-store-edit` — safe MUTATION procedure for phone DB / Modal Dict (backup, run-as gotchas, re-enable)
+- `verify` — end-to-end pipeline verification on device + Modal (upload/capture/summary paths)
+
 ## Docs
 - `docs/decisions.md` — decisions in effect; read before changing collector/server design
 - `docs/research.md` — platform facts (Kakao a11y tree, Android service kills, Modal, BAND)
