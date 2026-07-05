@@ -1,0 +1,23 @@
+{
+  "job_id": "925bfae8de0d",
+  "name": "abc-weekly-summary",
+  "schedule": "0 22 * * 0",
+  "repeat": "forever",
+  "deliver": "origin",
+  "prompt": "매주 월요일 오전 7시(Asia/Seoul 기준)에 카카오톡 ABC(아카라카북클럽) 대화방의 지난주 월요일부터 전날 일요일까지의 대화를 요약해 주세요.\n\n작업 요구사항:\n- `abc-weekly-summary` skill 절차를 따른다.\n- 현재 한국 시간을 `TZ=Asia/Seoul date`로 확인한 뒤, 직전 월요일~직전 일요일의 inclusive date range를 계산한다.\n- `/root/.hermes/scripts/kakao_fetch.py --since 9day`로 넉넉히 가져온 뒤 `room == \"ABC(아카라카북클럽)\"` 및 `client_time[:10]` 날짜 범위로 필터링한다.\n- 공유된 책과 URL을 중심으로 요약한다.\n- 책에는 저자를 함께 표시한다. 저자가 확인되지 않으면 `저자 미확인`으로 쓴다.\n- 책을 공유하는 URL이나 이미지로 추정되지만 책 제목이 수집 텍스트에 없는 URL/이미지는 URL 제목, 주변 대화, 가능한 페이지 제목을 확인해서 책 제목과 저자를 추출한다. 이미지 원본이 수집되지 않았으면 그 사실을 명시하고 추정하지 않는다.\n- Band에 copy&paste하기 쉽도록 plain text 중심으로 작성한다.\n- 본문 내용에 이모지를 넣지 않는다.\n- 추천/언급된 책 섹션을 맨 위에 두고, 그 다음 공유 URL 모음, 핵심 화제, 결정/일정, 한 줄 분위기 순서로 작성한다.\n- 원문 메시지를 그대로 길게 나열하지 말고 수집된 메시지에 근거해 요약한다.\n- 최종 응답만 사용자에게 전달한다.",
+  "skills": [
+    "abc-weekly-summary"
+  ],
+  "model": null,
+  "provider": null,
+  "base_url": null,
+  "script": null,
+  "context_from": null,
+  "enabled_toolsets": [
+    "terminal"
+  ],
+  "workdir": null,
+  "enabled": true,
+  "state": "scheduled",
+  "notes": "Tracked source for Hermes cron job. Schedule is 22:00 UTC Sunday, which corresponds to 07:00 Monday in Asia/Seoul. Runtime-only fields such as origin chat_id, next_run_at, last_run_at, last_status, delivery errors, and output paths are intentionally not committed."
+}
