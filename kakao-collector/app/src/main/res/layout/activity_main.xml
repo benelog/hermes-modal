@@ -38,51 +38,6 @@
             android:background="?android:attr/listDivider" />
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingBottom="4dp"
-            android:text="설정"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:text="토큰/URL 등 실값을 여기서 입력하면 코드(git)에 두지 않아도 됩니다."
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="토큰 (KAKAO_COLLECTOR_TOKEN)" />
-
-        <EditText
-            android:id="@+id/etToken"
-            style="@style/FieldInput"
-            android:hint="Modal 시크릿과 동일한 값"
-            android:inputType="textNoSuggestions" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="Modal Ingest URL" />
-
-        <EditText
-            android:id="@+id/etUrl"
-            style="@style/FieldInput"
-            android:hint="https://benelog--kakao-ingest.modal.run"
-            android:inputType="textUri" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="Modal Summarize URL (방 멘션 요약)" />
-
-        <EditText
-            android:id="@+id/etSummarizeUrl"
-            style="@style/FieldInput"
-            android:hint="https://benelog--kakao-summarize.modal.run"
-            android:inputType="textUri" />
-
-        <TextView
             style="@style/FieldLabel"
             android:text="대상 방 목록 (한 줄에 방 제목 하나)" />
 
@@ -95,138 +50,12 @@
             android:minLines="2"
             android:singleLine="false" />
 
-        <TextView
-            style="@style/FieldLabel"
-            android:text="내 닉네임 (내 메시지 보낸이로 표시 — 내 메시지엔 닉네임이 안 떠서 필요)" />
-
-        <EditText
-            android:id="@+id/etOwnName"
-            style="@style/FieldInput"
-            android:hint="예: 정상혁..."
-            android:inputType="text" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="본문 id (MSG_ID)" />
-
-        <EditText
-            android:id="@+id/etMsgId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/message"
-            android:inputType="textNoSuggestions" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="보낸이 id (NAME_ID)" />
-
-        <EditText
-            android:id="@+id/etNameId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/name"
-            android:inputType="textNoSuggestions" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="시각 id (TIME_ID)" />
-
-        <EditText
-            android:id="@+id/etTimeId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/created_at"
-            android:inputType="textNoSuggestions" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="방제목 id (TITLE_ID, 선택)" />
-
-        <EditText
-            android:id="@+id/etTitleId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/title"
-            android:inputType="textNoSuggestions" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="8dp"
-            android:background="?android:attr/listDivider" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingBottom="4dp"
-            android:text="방 멘션 요약 (발신)"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:text="방에서 멘션+요약 키워드가 보이면 Modal로 요약을 받아 그 방으로 발신합니다. 발신은 읽기 전용을 깨므로, 입력창/전송버튼 id를 캘리브레이션한 뒤 자동발신을 켜세요."
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="멘션 키워드 (비우면 내 닉네임 사용)" />
-
-        <EditText
-            android:id="@+id/etMentionKeyword"
-            style="@style/FieldInput"
-            android:hint="예: 정상혁"
-            android:inputType="text" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="요약 키워드" />
-
-        <EditText
-            android:id="@+id/etSummaryKeyword"
-            style="@style/FieldInput"
-            android:hint="요약"
-            android:inputType="text" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="입력창 id (INPUT_ID, 캘리브레이션)" />
-
-        <EditText
-            android:id="@+id/etInputId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/message_edit_text"
-            android:inputType="textNoSuggestions" />
-
-        <TextView
-            style="@style/FieldLabel"
-            android:text="전송버튼 id (SEND_ID, 캘리브레이션)" />
-
-        <EditText
-            android:id="@+id/etSendId"
-            style="@style/FieldInput"
-            android:hint="com.kakao.talk:id/send_button_layout"
-            android:inputType="textNoSuggestions" />
-
         <CheckBox
             android:id="@+id/cbAutoReply"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="자동발신 — 멘션 요약 감지 시 그 방으로 요약 전송 (캘리브레이션 후 켜기)" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="8dp"
-            android:background="?android:attr/listDivider" />
-
-        <CheckBox
-            android:id="@+id/cbCalibrate"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="CALIBRATE — 수집 대신 화면 노드 id를 Logcat에 덤프" />
+            android:text="자동발신 — 멘션 요약 감지 시 그 방으로 요약 전송" />
 
         <Button
             android:id="@+id/btnSave"
@@ -246,6 +75,19 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="지금 요약 테스트 (앱에 표시 · 발신 안 함)" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?android:attr/listDivider" />
+
+        <Button
+            android:id="@+id/btnAdvanced"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="고급 설정 — 토큰 · URL · 화면 id · 키워드" />
 
         <TextView
             android:id="@+id/info"

@@ -13,24 +13,14 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
-/** 상태 확인 + 접근성 설정 열기 + 설정 편집(토큰/URL/방/ids/요약발신) + 연결·요약 테스트 화면. */
+/**
+ * 첫 화면: 상태 확인 + 접근성 설정 열기 + 자주 바꾸는 설정(대상 방/자동발신) + 연결·요약 테스트.
+ * 토큰/URL/화면 id/키워드 같은 한 번 맞추면 끝인 값은 [AdvancedSettingsActivity]로 분리.
+ */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var etToken: EditText
-    private lateinit var etUrl: EditText
-    private lateinit var etSummarizeUrl: EditText
     private lateinit var etRoom: EditText
-    private lateinit var etOwnName: EditText
-    private lateinit var etMsgId: EditText
-    private lateinit var etNameId: EditText
-    private lateinit var etTimeId: EditText
-    private lateinit var etTitleId: EditText
-    private lateinit var etMentionKeyword: EditText
-    private lateinit var etSummaryKeyword: EditText
-    private lateinit var etInputId: EditText
-    private lateinit var etSendId: EditText
     private lateinit var cbAutoReply: CheckBox
-    private lateinit var cbCalibrate: CheckBox
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -39,26 +29,17 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         Settings.init(this)
 
-        etToken = findViewById(R.id.etToken)
-        etUrl = findViewById(R.id.etUrl)
-        etSummarizeUrl = findViewById(R.id.etSummarizeUrl)
         etRoom = findViewById(R.id.etRoom)
-        etOwnName = findViewById(R.id.etOwnName)
-        etMsgId = findViewById(R.id.etMsgId)
-        etNameId = findViewById(R.id.etNameId)
-        etTimeId = findViewById(R.id.etTimeId)
-        etTitleId = findViewById(R.id.etTitleId)
-        etMentionKeyword = findViewById(R.id.etMentionKeyword)
-        etSummaryKeyword = findViewById(R.id.etSummaryKeyword)
-        etInputId = findViewById(R.id.etInputId)
-        etSendId = findViewById(R.id.etSendId)
         cbAutoReply = findViewById(R.id.cbAutoReply)
-        cbCalibrate = findViewById(R.id.cbCalibrate)
 
         populateForm()
 
         findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
             startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        findViewById<Button>(R.id.btnAdvanced).setOnClickListener {
+            saveForm() // 첫 화면에서 고치던 값이 이동 중에 날아가지 않게 먼저 저장.
+            startActivity(Intent(this, AdvancedSettingsActivity::class.java))
         }
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             saveForm()
@@ -91,44 +72,18 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         findViewById<TextView>(R.id.status).text =
             if (isServiceEnabled()) "접근성 서비스: 켜짐 ✅" else "접근성 서비스: 꺼짐 — 아래 버튼으로 켜세요"
-        refreshInfo()
+        refreshInfo() // 고급 설정에서 돌아올 때도 최신 값이 보이게.
     }
 
     private fun populateForm() {
-        etToken.setText(if (Settings.isTokenSet()) Settings.token else "")
-        etUrl.setText(Settings.ingestUrl)
-        etSummarizeUrl.setText(Settings.summarizeUrl)
         etRoom.setText(Settings.roomNamesRaw)
-        etOwnName.setText(Settings.ownName)
-        etMsgId.setText(Settings.msgId)
-        etNameId.setText(Settings.nameId)
-        etTimeId.setText(Settings.timeId)
-        etTitleId.setText(Settings.titleId)
-        etMentionKeyword.setText(Settings.mentionKeyword)
-        etSummaryKeyword.setText(Settings.summaryKeyword)
-        etInputId.setText(Settings.inputId)
-        etSendId.setText(Settings.sendId)
         cbAutoReply.isChecked = Settings.autoReply
-        cbCalibrate.isChecked = Settings.calibrate
     }
 
     private fun saveForm() {
-        Settings.save(
-            token = etToken.text.toString(),
-            ingestUrl = etUrl.text.toString(),
-            summarizeUrl = etSummarizeUrl.text.toString(),
+        Settings.saveMain(
             roomNames = etRoom.text.toString(),
-            ownName = etOwnName.text.toString(),
-            msgId = etMsgId.text.toString(),
-            nameId = etNameId.text.toString(),
-            timeId = etTimeId.text.toString(),
-            titleId = etTitleId.text.toString(),
-            mentionKeyword = etMentionKeyword.text.toString(),
-            summaryKeyword = etSummaryKeyword.text.toString(),
-            inputId = etInputId.text.toString(),
-            sendId = etSendId.text.toString(),
             autoReply = cbAutoReply.isChecked,
-            calibrate = cbCalibrate.isChecked,
         )
         refreshInfo()
     }

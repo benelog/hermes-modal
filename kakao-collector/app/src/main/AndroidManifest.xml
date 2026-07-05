@@ -21,6 +21,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".AdvancedSettingsActivity"
+            android:exported="false"
+            android:label="@string/advanced_settings_title"
+            android:parentActivityName=".MainActivity" />
+
         <service
             android:name=".KakaoCollectorService"
             android:exported="false"

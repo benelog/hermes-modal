@@ -139,12 +139,19 @@ object Settings {
         }
         set(v) = prefs.edit().putBoolean(KEY_CALIBRATE, v).apply()
 
-    /** 폼 한 번에 저장(단일 트랜잭션). 문자열은 앞뒤 공백 제거. */
-    fun save(
+    /** 첫 화면 폼 저장(자주 바꾸는 값만, 단일 트랜잭션). */
+    fun saveMain(roomNames: String, autoReply: Boolean) {
+        prefs.edit()
+            .putString(KEY_ROOM_NAMES, roomNames.trim())
+            .putBoolean(KEY_AUTO_REPLY, autoReply)
+            .apply()
+    }
+
+    /** 고급 설정 폼 저장(드물게 바꾸는 값, 단일 트랜잭션). 문자열은 앞뒤 공백 제거. */
+    fun saveAdvanced(
         token: String,
         ingestUrl: String,
         summarizeUrl: String,
-        roomNames: String,
         ownName: String,
         msgId: String,
         nameId: String,
@@ -154,14 +161,12 @@ object Settings {
         summaryKeyword: String,
         inputId: String,
         sendId: String,
-        autoReply: Boolean,
         calibrate: Boolean,
     ) {
         prefs.edit()
             .putString(KEY_TOKEN, token.trim())
             .putString(KEY_INGEST_URL, ingestUrl.trim())
             .putString(KEY_SUMMARIZE_URL, summarizeUrl.trim())
-            .putString(KEY_ROOM_NAMES, roomNames.trim())
             .putString(KEY_OWN_NAME, ownName.trim())
             .putString(KEY_MSG_ID, msgId.trim())
             .putString(KEY_NAME_ID, nameId.trim())
@@ -171,7 +176,6 @@ object Settings {
             .putString(KEY_SUMMARY_KEYWORD, summaryKeyword.trim())
             .putString(KEY_INPUT_ID, inputId.trim())
             .putString(KEY_SEND_ID, sendId.trim())
-            .putBoolean(KEY_AUTO_REPLY, autoReply)
             .putBoolean(KEY_CALIBRATE, calibrate)
             .apply()
     }
