@@ -17,7 +17,7 @@ object Poster {
                 setRequestProperty("Content-Type", "application/json")
                 doOutput = true
                 connectTimeout = 10_000
-                readTimeout = 15_000
+                readTimeout = 30_000 // Modal 콜드스타트가 15초를 넘길 수 있음(전송 실패 누적의 한 원인)
             }
             conn.outputStream.use { it.write(rec.toString().toByteArray(Charsets.UTF_8)) }
             val code = conn.responseCode

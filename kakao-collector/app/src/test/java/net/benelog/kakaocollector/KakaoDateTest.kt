@@ -1,6 +1,8 @@
 package net.benelog.kakaocollector
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KakaoDateTest {
@@ -16,5 +18,18 @@ class KakaoDateTest {
     @Test fun blankWhenNoDate() {
         assertEquals("", KakaoDate.normalize(""))
         assertEquals("", KakaoDate.normalize("Reaction, 2"))
+    }
+
+    @Test fun adjacentDays() {
+        assertTrue(KakaoDate.isAdjacentDay("2026-07-04", "2026-07-05"))
+        assertTrue(KakaoDate.isAdjacentDay("2026-07-05", "2026-07-04"))
+        assertTrue(KakaoDate.isAdjacentDay("2026-06-30", "2026-07-01")) // 월 경계
+    }
+
+    @Test fun nonAdjacentOrUnparseableDays() {
+        assertFalse(KakaoDate.isAdjacentDay("2026-07-04", "2026-07-04")) // 같은 날
+        assertFalse(KakaoDate.isAdjacentDay("2026-07-03", "2026-07-05")) // 이틀 차
+        assertFalse(KakaoDate.isAdjacentDay("", "2026-07-05"))
+        assertFalse(KakaoDate.isAdjacentDay("2026-07-04", ""))
     }
 }

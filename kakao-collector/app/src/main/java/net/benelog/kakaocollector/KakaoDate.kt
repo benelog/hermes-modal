@@ -13,4 +13,15 @@ object KakaoDate {
         val (y, mo, d) = m.destructured
         return "%04d-%02d-%02d".format(y.toInt(), mo.toInt(), d.toInt())
     }
+
+    /** 두 ISO 날짜(YYYY-MM-DD)가 정확히 하루 차이인가. 어느 쪽이든 못 읽으면 false. */
+    fun isAdjacentDay(a: String, b: String): Boolean = try {
+        val days = java.time.temporal.ChronoUnit.DAYS.between(
+            java.time.LocalDate.parse(a),
+            java.time.LocalDate.parse(b),
+        )
+        days == 1L || days == -1L
+    } catch (e: Exception) {
+        false
+    }
 }

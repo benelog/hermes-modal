@@ -29,4 +29,22 @@ class DateAssignerTest {
 
     @Test fun noMarkersYieldBlank() =
         assertEquals(listOf("", ""), DateAssigner.assign(emptyList(), listOf(100, 200)))
+
+    // 최상단 마커가 인라인 구분선(그 날의 시작)인 프레임: 그 '위' 메시지는 이전 날짜이므로
+    // 구분선 날짜를 내려받으면 안 된다 → 미상("").
+    @Test fun aboveTopmostMarkerIsUnknown() {
+        val markers = listOf(DateAssigner.Marker(top = 600, date = "2026-07-05"))
+        assertEquals(listOf("", "2026-07-05"), DateAssigner.assign(markers, listOf(200, 800)))
+    }
+
+    // 2026-07-05 실측 오수집 재현: 스크롤 중 스티키 뱃지가 이전 화면 날짜(7/5)로 지연된 채
+    // 7/4 메시지 위에 떠 있고 아래에 7/5 구분선이 보이는 프레임 — 구분선 위 메시지가 구분선
+    // 날짜 이상을 받는 모순 → 미상 처리(중복 행 생성 차단). 구분선 아래는 정상 부여.
+    @Test fun staleStickyContradictingInlineSeparatorIsBlanked() {
+        val markers = listOf(
+            DateAssigner.Marker(top = 0, date = "2026-07-05"),
+            DateAssigner.Marker(top = 900, date = "2026-07-05"),
+        )
+        assertEquals(listOf("", "2026-07-05"), DateAssigner.assign(markers, listOf(300, 1000)))
+    }
 }

@@ -48,9 +48,10 @@ class KakaoCollectorService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // 스크롤이 멈춘 뒤 한 번 수집한다 — 스크롤 중 프레임은 말풍선 bounds가 흔들려 내/남 정렬 오판 위험.
+    // fromScroll=true: 스크롤(백필) 수집은 날짜 경계 오부여 가드([MessageStore]) 대상.
     private val settleRunnable = Runnable {
         lastRun = System.currentTimeMillis()
-        handle(allowTrigger = false)
+        handle(allowTrigger = false, fromScroll = true)
     }
     // 새 메시지 도착(CONTENT_CHANGED)도 삽입+하단 스크롤 애니메이션으로 bounds가 흔들리므로
     // 즉시 수집하지 않고 settle 후 1회 수집한다(스크롤과 동일 이유 — 내/남 오정렬=오수집 방지).
@@ -102,7 +103,7 @@ class KakaoCollectorService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
-    private fun handle(allowTrigger: Boolean) {
+    private fun handle(allowTrigger: Boolean, fromScroll: Boolean = false) {
         val root = rootInActiveWindow ?: return
         try {
             if (Settings.calibrate) {
@@ -117,7 +118,10 @@ class KakaoCollectorService : AccessibilityService() {
             val matched = title?.let { RoomMatch.match(it, targets) }
             when {
                 matched != null -> {
-                    if (!inTargetRoom || activeRoom != matched) Log.i(TAG, "entered target room: $matched")
+                    if (!inTargetRoom || activeRoom != matched) {
+                        Log.i(TAG, "entered target room: $matched")
+                        Uploader.flushUnsent() // 활동 재개 시점 — 밀린 미전송분(직전 세션 꼬리 등) 재시도
+                    }
                     inTargetRoom = true
                     activeRoom = matched
                 }
@@ -127,7 +131,7 @@ class KakaoCollectorService : AccessibilityService() {
                 }
                 // title == null: 방 식별 불가 → 직전 상태 유지(섣불리 해제/입장하지 않음).
             }
-            if (inTargetRoom && activeRoom.isNotEmpty()) scrape(allowTrigger)
+            if (inTargetRoom && activeRoom.isNotEmpty()) scrape(allowTrigger, fromScroll)
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
         }
@@ -176,7 +180,7 @@ class KakaoCollectorService : AccessibilityService() {
      *          화면 밖) 그 메시지는 스킵 — 다음 스크롤에서 닉네임과 함께 보일 때 잡혀 오귀속/중복을 막는다.
      * 동시에 '맨 아래(최신) 새 메시지'를 추적해 allowTrigger면 멘션 요약 명령인지 판정한다.
      */
-    private fun scrape(allowTrigger: Boolean) {
+    private fun scrape(allowTrigger: Boolean, fromScroll: Boolean) {
         val ownName = Settings.ownName
         val nameId = Settings.nameId
         val msgId = Settings.msgId
@@ -246,7 +250,7 @@ class KakaoCollectorService : AccessibilityService() {
             if (sender != null && isNew) {
                 firstSeen(key) // seen에 추가(+상한 정리)
                 newCount++
-                Uploader.submit(activeRoom, sender, p.text, date)
+                Uploader.submit(activeRoom, sender, p.text, date, fromScroll)
             }
             // 트리거는 본문만 보므로 보낸이 미상 메시지도 bottom 후보엔 넣되, '새 발화'는 수집된 경우만.
             if (p.bottom > bottomY) {

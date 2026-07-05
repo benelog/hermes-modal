@@ -16,8 +16,17 @@ import android.database.sqlite.SQLiteOpenHelper
 class MessageStore(context: Context) :
     SQLiteOpenHelper(context.applicationContext, "collector.db", null, 2) {
 
+    companion object {
+        // 스크롤(백필) 재수집에서 같은 본문이 '하루 인접한 다른 날짜'로 다시 들어오는 것은
+        // 날짜 경계 오부여(스티키 뱃지 지연/구분선 미포착)다 — 단, 그 재수집은 같은 스크롤
+        // 세션(수 분) 안에서 일어나므로, 기존 행이 이 시간창 안에서 수집된 경우로 제한한다.
+        // 진짜로 며칠 뒤 같은 말을 반복한 메시지까지 합쳐버리지 않기 위한 안전핀.
+        private const val CROSS_DAY_RESCRAPE_WINDOW_MS = 6L * 60 * 60 * 1000
+    }
+
     enum class Outcome { INSERTED, UPDATED, SKIPPED }
     data class Result(val outcome: Outcome, val rowId: Long)
+    data class UnsentRow(val id: Long, val room: String, val sender: String, val text: String, val clientTime: String)
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -47,21 +56,27 @@ class MessageStore(context: Context) :
      *    갱신(원래 _id/collected_at 유지 = 대화 순서 보존) → UPDATED.
      *  - 반대로 이 메시지가 기존 행의 잘린 앞부분이면(기존이 더 완전) 버린다 → SKIPPED.
      *  - 아니면 새 행 INSERT(정확중복이면 UNIQUE로 무시) → INSERTED / SKIPPED.
+     *
+     * [fromScroll]=true(스크롤 settle 수집)면 날짜 경계 가드가 추가로 작동한다: 같은 본문이
+     * 방금(시간창 내) '하루 인접한 다른 날짜'로 저장돼 있으면 재수집 오부여로 보고 버린다.
+     * 실시간 수집(false)엔 적용하지 않는다 — 자정 전후로 같은 말을 정말로 두 번 보낸
+     * 메시지를 지우면 안 되기 때문.
      */
-    fun recordOrMerge(room: String, sender: String, text: String, clientTime: String, nowMillis: Long): Result {
+    fun recordOrMerge(room: String, sender: String, text: String, clientTime: String, nowMillis: Long, fromScroll: Boolean = false): Result {
         val db = writableDatabase
         var updateId = -1L
         var updText = text
         var updCt = clientTime
         var skip = false
         db.query(
-            "messages", arrayOf("_id", "text", "client_time"),
+            "messages", arrayOf("_id", "text", "client_time", "collected_at"),
             "room=?", arrayOf(room), null, null, "_id DESC", "400",
         ).use { c ->
             while (c.moveToNext()) {
                 val id = c.getLong(0)
                 val etext = c.getString(1) ?: ""
                 val ect = c.getString(2) ?: ""
+                val ecollected = c.getLong(3)
                 if (etext == text) {
                     if (ect == clientTime) { skip = true; break } // 정확 중복
                     if (ctCompatible(ect, clientTime)) {
@@ -69,6 +84,11 @@ class MessageStore(context: Context) :
                         if (ect.isEmpty() && clientTime.isNotEmpty()) { updateId = id; updCt = clientTime; break }
                         skip = true; break // 기존이 이미 날짜 있음(또는 둘 다 빈값)
                     }
+                    // 날짜 경계 가드(2026-07-05 오수집 재발 방지): 스크롤 재수집 + 방금 수집된
+                    // 같은 본문 + 하루 인접 날짜 = 같은 메시지의 날짜 오부여 사본 → 버림.
+                    if (fromScroll && nowMillis - ecollected <= CROSS_DAY_RESCRAPE_WINDOW_MS &&
+                        KakaoDate.isAdjacentDay(ect, clientTime)
+                    ) { skip = true; break }
                     continue // 같은 본문, 다른 '아는' 날 → 다른 메시지
                 }
                 if (!ctCompatible(ect, clientTime)) continue
@@ -105,6 +125,20 @@ class MessageStore(context: Context) :
 
     fun markSent(rowId: Long) {
         writableDatabase.update("messages", ContentValues().apply { put("sent_ok", 1) }, "_id=?", arrayOf(rowId.toString()))
+    }
+
+    /** 전송 실패로 남은(sent_ok=0) 행을 오래된 것부터. 재전송(flush) 대상 조회용. */
+    fun unsentRows(sinceMillis: Long, limit: Int): List<UnsentRow> {
+        val out = ArrayList<UnsentRow>()
+        readableDatabase.query(
+            "messages", arrayOf("_id", "room", "sender", "text", "client_time"),
+            "sent_ok=0 AND collected_at>=?", arrayOf(sinceMillis.toString()), null, null, "_id ASC", limit.toString(),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(UnsentRow(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4) ?: ""))
+            }
+        }
+        return out
     }
 
     fun prune(cutoffMillis: Long) {
