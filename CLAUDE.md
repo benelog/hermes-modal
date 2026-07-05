@@ -5,8 +5,8 @@ Zero-cost personal bot stack on Modal: Hermes Telegram gateway + qmd knowledge s
 ## Commands
 - Server tests: `python3 -m unittest discover -s tests` (no pytest)
 - Android: `cd kakao-collector && ./install.sh assembleDebug|testDebugUnitTest|installDebug` (script handles JDK17/SDK)
-- Deploy: `modal deploy modal_app.py` — PRODUCTION bot, confirm with user first (hook enforces). `modal` only in pipx venv: `/home/benelog/.local/share/pipx/venvs/modal/bin/python`
-- adb: `~/Android/Sdk/platform-tools/adb` (not on PATH)
+- Deploy: `modal deploy modal_app.py` — PRODUCTION bot, confirm with user first (hook enforces). `modal` CLI is on PATH (pipx); for `import modal` scripting use the venv python: `"$(pipx environment --value PIPX_LOCAL_VENVS)/modal/bin/python"`
+- adb (may not be on PATH): `ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`
 
 ## Rules
 - After `installDebug`/force-stop of the collector app, the a11y service dies silently → run `kakao-collector/enable_service.sh`, verify `dumpsys accessibility | grep "label=Kakao Collector"` (hook checks after installs).

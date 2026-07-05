@@ -5,8 +5,8 @@ tools: Bash, Read, Write, Grep, Glob
 ---
 
 You audit two stores of scraped KakaoTalk messages:
-- Phone DB: `adb exec-out run-as net.benelog.kakaocollector cat databases/collector.db > <scratchpad>/collector.db` (adb at `~/Android/Sdk/platform-tools/adb`; no sqlite3 binary — use python3 sqlite3). Table `messages`: _id, room, sender, text, client_time (YYYY-MM-DD), collected_at (epoch ms), sent_ok.
-- Modal Dict `kakao-collect`: read via `/home/benelog/.local/share/pipx/venvs/modal/bin/python` (system python3 lacks modal): `modal.Dict.from_name("kakao-collect")`. Records: {room, sender, text, client_time, received_at ISO-UTC}. 14-day retention on received_at. Summaries read ONLY this store.
+- Phone DB: `$ADB exec-out run-as net.benelog.kakaocollector cat databases/collector.db > <scratchpad>/collector.db` — resolve adb first: `ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`; no sqlite3 binary — use python3 sqlite3. Table `messages`: _id, room, sender, text, client_time (YYYY-MM-DD), collected_at (epoch ms), sent_ok.
+- Modal Dict `kakao-collect`: system python3 lacks `modal` — use the pipx venv python, resolved via `MODAL_PY="$(pipx environment --value PIPX_LOCAL_VENVS)/modal/bin/python"` (equivalently: the shebang of `command -v modal`): `modal.Dict.from_name("kakao-collect")`. Records: {room, sender, text, client_time, received_at ISO-UTC}. 14-day retention on received_at. Summaries read ONLY this store.
 
 Domain rules you must apply:
 - Dedupe key is sender-FREE: (room, text, client_time). Server key via `scripts/kakao/collector_core.message_key`.

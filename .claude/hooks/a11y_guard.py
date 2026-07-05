@@ -8,6 +8,7 @@ catches the forgotten `enable_service.sh` immediately.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -17,7 +18,9 @@ cmd = (data.get("tool_input") or {}).get("command", "")
 if "installDebug" not in cmd and "adb install" not in cmd:
     sys.exit(0)
 
-adb = os.path.expanduser("~/Android/Sdk/platform-tools/adb")
+# Same resolution chain as kakao-collector/enable_service.sh.
+sdk = os.environ.get("ANDROID_SDK_ROOT") or os.path.expanduser("~/Android/Sdk")
+adb = shutil.which("adb") or os.path.join(sdk, "platform-tools", "adb")
 if not os.path.exists(adb):
     sys.exit(0)
 try:

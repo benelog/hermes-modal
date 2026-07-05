@@ -15,7 +15,9 @@ JSON-dump to the session scratchpad before any change. Non-negotiable.
 
 ## Phone DB (`net.benelog.kakaocollector`, `databases/collector.db`)
 
-adb: `~/Android/Sdk/platform-tools/adb`. No sqlite3 CLI on host or device — use
+Resolve adb (may not be on PATH; same chain as `enable_service.sh`):
+`ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`
+— use `$ADB` in the steps below. No sqlite3 CLI on host or device — use
 python3 `sqlite3`. Table `messages`: `_id, room, sender, text, client_time
 (YYYY-MM-DD), collected_at (epoch ms), sent_ok`.
 
@@ -37,8 +39,10 @@ python3 `sqlite3`. Table `messages`: `_id, room, sender, text, client_time
 
 ## Modal Dict (`kakao-collect`)
 
-- Interpreter: `/home/benelog/.local/share/pipx/venvs/modal/bin/python`
-  (system python3 has no `modal`): `modal.Dict.from_name("kakao-collect")`.
+- System python3 has no `modal` — use the pipx venv python, resolved via
+  `MODAL_PY="$(pipx environment --value PIPX_LOCAL_VENVS)/modal/bin/python"`
+  (equivalently: the shebang line of `command -v modal`). Then
+  `modal.Dict.from_name("kakao-collect")`.
 - Edit values IN PLACE under the EXISTING key — never re-key. Reads are
   key-agnostic, so a key that no longer matches `message_key` of the edited
   text is fine. Delete with `del d[key]`.

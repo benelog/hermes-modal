@@ -9,13 +9,14 @@ You run build/test/install cycles for `kakao-collector/` (Android accessibility 
 Commands (always from `kakao-collector/`):
 - `./install.sh assembleDebug` — APK only, no device needed
 - `./install.sh testDebugUnitTest` — JVM unit tests, no device needed
-- `./install.sh installDebug` — build + install to connected device (`~/Android/Sdk/platform-tools/adb get-state` must be `device`)
+- `./install.sh installDebug` — build + install to connected device (`$ADB get-state` must be `device`)
 
+Resolve adb once (it may not be on PATH): `ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`
 install.sh picks JDK 17 from sdkman and sets ANDROID_SDK_ROOT itself; do not export JAVA_HOME manually.
 
 CRITICAL after every installDebug: the package update force-stops the app, which silently disables the accessibility service (collection stops). You MUST then:
 1. `./enable_service.sh`
-2. Verify: `~/Android/Sdk/platform-tools/adb shell dumpsys accessibility | grep -c "label=Kakao Collector"` returns 1 (rebind may lag a few seconds; retry once).
+2. Verify: `$ADB shell dumpsys accessibility | grep -c "label=Kakao Collector"` returns 1 (rebind may lag a few seconds; retry once).
 Never skip this; never report install success without the binding verified.
 
 Return concisely: which tasks ran, pass/fail per task, the last ~20 lines of output only on failure (full gradle spam stays with you), and post-install binding state. If tests fail, include each failing test name + assertion message.

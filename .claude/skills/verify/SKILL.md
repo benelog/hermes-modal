@@ -5,9 +5,11 @@ description: Verify the KakaoTalk collection pipeline end-to-end on the real dev
 
 # Verify collection pipeline end-to-end
 
-Prereqs: device connected (`~/Android/Sdk/platform-tools/adb get-state` →
-`device`); a11y service bound (`adb shell dumpsys accessibility | grep
-"label=Kakao Collector"` — if empty run `kakao-collector/enable_service.sh`).
+Resolve adb first (may not be on PATH):
+`ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`.
+Prereqs: device connected (`$ADB get-state` → `device`); a11y service bound
+(`$ADB shell dumpsys accessibility | grep "label=Kakao Collector"` — if empty
+run `kakao-collector/enable_service.sh`).
 If app code changed, install first (android-build agent handles install +
 re-enable). Token for curl: `adb shell run-as net.benelog.kakaocollector cat
 shared_prefs/kakao_collector.xml`.

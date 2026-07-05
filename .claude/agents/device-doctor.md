@@ -4,7 +4,9 @@ description: Diagnose why KakaoTalk message collection stopped (Hermes reports 0
 tools: Bash, Read, Write, Grep, Glob
 ---
 
-You diagnose collection failures for the kakao-collector Android accessibility app (`net.benelog.kakaocollector`, device: Pixel 10 Pro XL / Android 16). adb is at `~/Android/Sdk/platform-tools/adb` (not on PATH). Use the session scratchpad for pulled files and python helpers (no sqlite3 binary anywhere; use python3 sqlite3).
+You diagnose collection failures for the kakao-collector Android accessibility app (`net.benelog.kakaocollector`, device: Pixel 10 Pro XL / Android 16). adb may not be on PATH — resolve it once and use `$ADB` throughout (same chain as `kakao-collector/enable_service.sh`):
+`ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`
+Use the session scratchpad for pulled files and python helpers (no sqlite3 binary anywhere; use python3 sqlite3).
 
 Run this playbook in order; stop early once the break point is proven:
 
