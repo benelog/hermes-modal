@@ -45,7 +45,7 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
    2. **Shared URL visit and parsing**: open shared bookstore/article/search URLs; parse `og:title`, `<title>`, `book:author`, `author`, and bookstore-specific fields such as YES24/알라딘/교보 title-author markup.
    3. **Internet/bookstore search**: when an author is recognized but the title is missing, search with `author + 책 + surrounding context`; when a title is recognized but the author is missing, search with `title + 책 저자`. Prefer bookstore/library/publisher pages over snippets.
    4. **Associated attachment image OCR**: only after text/URL/search are insufficient, OCR any actual image URL/path present in collector fields such as `image_url`, `attachments`, `media`, or `files`. If the collector only says `[사진]` and no image file/URL is available, explicitly say OCR was impossible because the image payload was not collected.
-9. Cross-check final output against the enrichment helper output, the URL list, and book candidate lines so no shared book, author, or URL is omitted.
+9. Cross-check final output against the enrichment helper output, the URL list, and book candidate lines so no shared book, author, purchase link, or non-book URL is omitted. Attach book-related URLs to the relevant book entry and exclude them from the URL section to avoid duplication.
 
 ## Output rules
 
@@ -53,7 +53,7 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
 - Plain text first: suitable for copy/paste into Band.
 - Do not include emoji in the body.
 - Prefer simple headings and hyphen bullets.
-- Put shared/recommended books first, then deduped URLs, then key topics.
+- Put shared/recommended books first, then deduped non-book URLs, then exactly 10 core keywords.
 - For books, include author whenever available. If author is unavailable after message-text clue recognition, URL parsing, internet/bookstore search, and available image OCR, write `저자 미확인` rather than guessing.
 - Mention the message count and any collection caveat briefly.
 - Do not list raw messages verbatim; summarize with attribution/context.
@@ -66,38 +66,50 @@ ABC 대화방 주간 요약
 기준: 수집된 ABC(아카라카북클럽) 메시지 N건
 참고: 수집된 메시지 기준입니다. 이미지 원본이 수집되지 않은 경우 주변 대화와 URL 제목만 근거로 삼았습니다.
 
-1. 공유·추천된 책 / 작가 / 읽을거리
+## 공유·추천된 책
 
-- 《책 제목》 - 저자
-  - 맥락 요약.
-  - 링크: https://...
+### 《책 제목》 - 저자
 
-- 제목 미확인 책/이미지 공유 - 저자 미확인
-  - 이미지 원본이 없어 제목 확인은 불가. 주변 대화상 ...로 추정.
+- 맥락 요약.
+- 구매 링크: https://m.yes24.com/...
 
-2. 공유된 URL 모음
+### 제목 미확인 책/이미지 공유 - 저자 미확인
 
-- 페이지 제목 또는 확인된 설명
-  - 맥락: ...
-  - URL: https://...
+- 이미지 원본이 없어 제목 확인은 불가. 주변 대화상 ...로 추정.
+- 구매 링크: 확인 불가
 
-3. 핵심 화제 요약
+## 공유된 URL 모음
 
-- 화제 제목
-  - 세부 내용.
+### 페이지 제목 또는 확인된 설명
+- 맥락: ...
+- URL: https://...
 
-4. 결정·일정·약속
+## 핵심 키워드 10개
 
-- 일자/장소/할 일.
-
-5. 한 줄 분위기
-
-...
+- 키워드1
+- 키워드2
+- 키워드3
+- 키워드4
+- 키워드5
+- 키워드6
+- 키워드7
+- 키워드8
+- 키워드9
+- 키워드10
 ```
+
+Additional output rules for this shape:
+
+- Do not include separate `핵심 화제 요약`, `결정·일정·약속`, or `한 줄 분위기` sections. The purpose is to keep the report centered on books and shared URLs.
+- Use heading levels rather than indentation because Band copy/paste does not preserve indentation clearly.
+- For every identified book, include `구매 링크:`. If the purchase link was not shared in the Kakao room, search the internet and fill it with a YES24 URL whenever a confident YES24 product page is found. Prefer mobile YES24 URLs (`https://m.yes24.com/goods/detail/...`) when available.
+- If a book's URL is already used as `구매 링크` in `## 공유·추천된 책`, remove that URL from `## 공유된 URL 모음` entirely. Put all relevant conversation context for that book into the book's `맥락` bullets to avoid duplication.
+- `## 공유된 URL 모음` should contain only non-book URLs or book-related URLs that could not be confidently attached to a specific book entry.
 
 ## References
 
 - `references/2026-07-abc-weekly-cron-setup.md` records the initial weekly cron setup pattern, including the KST-to-UTC schedule conversion, self-contained cron prompt checklist, and Git-tracked cron JSON verification steps.
+- `references/book-title-author-enrichment.md` records the required message-clue → URL parsing → internet/bookstore search → available-image OCR sequence and the `abc_book_enrichment.py` helper contract.
 
 ## Pitfalls
 
