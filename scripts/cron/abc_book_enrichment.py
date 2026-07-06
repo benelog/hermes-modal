@@ -157,6 +157,13 @@ def kyobo_book(text: str) -> dict[str, str]:
     return {k: v for k, v in out.items() if v}
 
 
+def normalize_yes24_mobile(url: str) -> str:
+    m = re.search(r"/goods/detail/(\d+)", url)
+    if m:
+        return f"https://m.yes24.com/goods/detail/{m.group(1)}"
+    return url
+
+
 def parse_book_from_url(url: str) -> dict[str, Any]:
     result: dict[str, Any] = {"url": url, "source": "url"}
     try:
@@ -185,6 +192,8 @@ def parse_book_from_url(url: str) -> dict[str, Any]:
     if not book.get("title") and title and (BOOK_HINT_RE.search(title) or any(site in host for site in ["yes24", "aladin", "kyobobook"])):
         book["title"] = re.sub(r"\s*[-|]\s*(예스24|알라딘|교보문고).*$", "", title).strip()
     if book:
+        if "yes24" in host:
+            book["purchase_link"] = normalize_yes24_mobile(final_url)
         result["book"] = book
     return result
 
@@ -212,6 +221,28 @@ def ddg_search(query: str, limit: int = 5) -> list[dict[str, str]]:
         if len(results) >= limit:
             break
     return results
+
+
+def yes24_purchase_search(title: str = "", author: str = "", context: str = "") -> list[dict[str, str]]:
+    query_parts = [p for p in [title, author] if p]
+    if not query_parts:
+        # Keep the fallback short; long chat text hurts search precision.
+        query_parts = re.findall(r"[가-힣A-Za-z0-9]{2,}", context)[:6]
+    if not query_parts:
+        return []
+    query = " ".join(query_parts) + " site:yes24.com/goods/detail"
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for r in ddg_search(query, limit=6):
+        url = r.get("url", "")
+        if "yes24.com" not in url or "/goods/detail/" not in url:
+            continue
+        link = normalize_yes24_mobile(url)
+        if link in seen:
+            continue
+        seen.add(link)
+        out.append({"title": r.get("title", ""), "url": link, "query": query})
+    return out[:3]
 
 
 def search_book_from_clues(authors: list[str], titles: list[str], context: str) -> list[dict[str, Any]]:
@@ -323,6 +354,21 @@ def summarize(messages: list[dict[str, Any]], start: str, end: str) -> dict[str,
             }
             if (clues["authors"] and not clues["titles"]) or (clues["titles"] and not clues["authors"]):
                 item["web_search_results"] = search_book_from_clues(clues["authors"], clues["titles"], text)
+            if clues["titles"] or clues["authors"]:
+                purchase_candidates: list[dict[str, str]] = []
+                for title in (clues["titles"] or [""])[:3]:
+                    for author in (clues["authors"] or [""])[:3]:
+                        purchase_candidates.extend(yes24_purchase_search(title=title, author=author, context=text))
+                # Deduplicate while preserving search order.
+                deduped: list[dict[str, str]] = []
+                seen_purchase: set[str] = set()
+                for candidate in purchase_candidates:
+                    url = candidate.get("url", "")
+                    if url and url not in seen_purchase:
+                        seen_purchase.add(url)
+                        deduped.append(candidate)
+                if deduped:
+                    item["yes24_purchase_candidates"] = deduped[:3]
             image_refs = iter_image_refs(msg)
             if image_refs:
                 item["image_ocr"] = [ocr_image(ref) for ref in image_refs[:3]]
