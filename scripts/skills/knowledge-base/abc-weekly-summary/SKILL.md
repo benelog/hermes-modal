@@ -30,14 +30,22 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
 4. Parse JSON and filter messages where:
    - `room == "ABC(아카라카북클럽)"`
    - `start_date <= client_time[:10] <= end_date`
-5. Extract and deduplicate URLs with `https?://\S+`, stripping trailing punctuation. For each URL, fetch the page title or Open Graph title when feasible. Keep the URL even if title fetching fails.
-6. Extract book/reading candidates from message text using terms such as `책`, `도서`, `읽`, `추천`, `소설`, `작가`, `저자`, `출판`, `서점`, `문학`, `독서`, `알라딘`, `교보`, `yes24`, `예스24`, `《`, `『`, `에세이`, `시집`, `만화`, `서평`.
-7. For book-like URLs or image-only shares where the collector text does not include a title, try to infer title and author from:
-   - fetched URL title / OG title,
-   - neighboring messages,
-   - explicit author clues in the thread.
-   If the actual image is not available in the collected text, state plainly that the image itself was not available and only the surrounding conversation was used.
-8. Cross-check final output against the URL list and book candidate lines so no shared book, author, or URL is omitted.
+5. Run the enrichment helper before writing the summary whenever available:
+   ```bash
+   python /root/.hermes/scripts/abc_book_enrichment.py --since 9day --start YYYY-MM-DD --end YYYY-MM-DD
+   ```
+   If working from an already fetched JSON file, use:
+   ```bash
+   python /root/.hermes/scripts/abc_book_enrichment.py --input-json /tmp/kakao_abc_weekly.json --start YYYY-MM-DD --end YYYY-MM-DD
+   ```
+6. Extract and deduplicate URLs with `https?://\S+`, stripping trailing punctuation. For each URL, fetch the page title or Open Graph title when feasible. Keep the URL even if title fetching fails.
+7. Extract book/reading candidates from message text using terms such as `책`, `도서`, `읽`, `추천`, `소설`, `작가`, `저자`, `출판`, `서점`, `문학`, `독서`, `알라딘`, `교보`, `yes24`, `예스24`, `《`, `『`, `에세이`, `시집`, `만화`, `서평`.
+8. For title-missing or author-missing book candidates, resolve title and author in this order and record uncertainty instead of guessing:
+   1. **Author/title clue recognition from message text**: capture quoted titles (`《...》`, `『...』`, quotes) and author clues such as `OO 작가`, `OO 저자`, `OO 셰프`.
+   2. **Shared URL visit and parsing**: open shared bookstore/article/search URLs; parse `og:title`, `<title>`, `book:author`, `author`, and bookstore-specific fields such as YES24/알라딘/교보 title-author markup.
+   3. **Internet/bookstore search**: when an author is recognized but the title is missing, search with `author + 책 + surrounding context`; when a title is recognized but the author is missing, search with `title + 책 저자`. Prefer bookstore/library/publisher pages over snippets.
+   4. **Associated attachment image OCR**: only after text/URL/search are insufficient, OCR any actual image URL/path present in collector fields such as `image_url`, `attachments`, `media`, or `files`. If the collector only says `[사진]` and no image file/URL is available, explicitly say OCR was impossible because the image payload was not collected.
+9. Cross-check final output against the enrichment helper output, the URL list, and book candidate lines so no shared book, author, or URL is omitted.
 
 ## Output rules
 
@@ -46,7 +54,7 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
 - Do not include emoji in the body.
 - Prefer simple headings and hyphen bullets.
 - Put shared/recommended books first, then deduped URLs, then key topics.
-- For books, include author whenever available. If author is unavailable, write `저자 미확인` rather than guessing.
+- For books, include author whenever available. If author is unavailable after message-text clue recognition, URL parsing, internet/bookstore search, and available image OCR, write `저자 미확인` rather than guessing.
 - Mention the message count and any collection caveat briefly.
 - Do not list raw messages verbatim; summarize with attribution/context.
 
@@ -87,9 +95,14 @@ ABC 대화방 주간 요약
 ...
 ```
 
+## References
+
+- `references/2026-07-abc-weekly-cron-setup.md` records the initial weekly cron setup pattern, including the KST-to-UTC schedule conversion, self-contained cron prompt checklist, and Git-tracked cron JSON verification steps.
+
 ## Pitfalls
 
 - `--room ABC` may return zero if the stored room is `ABC(아카라카북클럽)`; fetch broadly and filter locally before concluding there is no data.
 - Avoid decorative emoji because the user wants Band-friendly plain text and no emoji in the body.
-- Do not fabricate titles or authors for image-only shares. Label inference and uncertainty explicitly.
+- Do not fabricate titles or authors for image-only shares. Follow the resolution order: message author/title clues → URL parsing → internet/bookstore search → OCR of actual collected image attachments. Label inference and uncertainty explicitly.
 - If URL title fetching is rate-limited, use surrounding message text as the title/description and note only when important.
+- For the user's Monday 07:00 KST weekly cron, use the UTC cron expression `0 22 * * 0` unless the active runtime explicitly supports timezone-aware cron expressions; `0 7 * * 1` schedules 07:00 UTC in the observed Hermes runtime.
