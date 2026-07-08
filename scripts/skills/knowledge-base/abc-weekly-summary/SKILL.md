@@ -110,6 +110,7 @@ Additional output rules for this shape:
 
 - `references/2026-07-abc-weekly-cron-setup.md` records the initial weekly cron setup pattern, including the KST-to-UTC schedule conversion, self-contained cron prompt checklist, and Git-tracked cron JSON verification steps.
 - `references/book-title-author-enrichment.md` records the required message-clue → URL parsing → internet/bookstore search → available-image OCR sequence and the `abc_book_enrichment.py` helper contract.
+- `references/manual-test-run.md` records the reliable manual test-run pattern: trigger the cron job, run a scheduler tick, then verify saved output and delivery logs.
 
 ## Pitfalls
 
@@ -118,3 +119,4 @@ Additional output rules for this shape:
 - Do not fabricate titles or authors for image-only shares. Follow the resolution order: message author/title clues → URL parsing → internet/bookstore search → OCR of actual collected image attachments. Label inference and uncertainty explicitly.
 - If URL title fetching is rate-limited, use surrounding message text as the title/description and note only when important.
 - For the user's Monday 07:00 KST weekly cron, use the UTC cron expression `0 22 * * 0` unless the active runtime explicitly supports timezone-aware cron expressions; `0 7 * * 1` schedules 07:00 UTC in the observed Hermes runtime.
+- For manual review runs, do not stop after `cronjob(action="run")` or `hermes cron run`; that only schedules the job for the next scheduler tick. Run `hermes cron tick`, verify `last_status`/saved output, and only then tell the user it completed.
