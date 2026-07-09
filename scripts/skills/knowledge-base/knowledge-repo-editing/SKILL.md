@@ -56,7 +56,6 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - For normal web pages, retrieve title, headings, description, and key points with `curl`/`python` or Jina Reader:
      - Use `https://r.jina.ai/http://https://<host>/<path>` for HTTPS pages (or `https://r.jina.ai/http://http://<host>/<path>` for HTTP pages).
      - If a Jina Reader URL returns 403 or empty content, retry with the original URL scheme explicitly included after `/http://`; avoid accidentally nesting `r.jina.ai` twice.
-   - For X/Twitter status URLs, Jina may be blocked. If the public HTML loads, extract `<title>`, `meta[name=description]`, `og:title`, `og:description`, `twitter:description`, and any `https://t.co/...` links from direct HTML. Resolve `t.co` links, but if they redirect back to the same status, do not treat them as an external source. Ground the note only in metadata unless the tweet/video content is otherwise retrievable.
    - For YouTube, direct transcript tools may be blocked from cloud IPs. Prefer:
      - `https://www.youtube.com/oembed?url=<youtube-url>&format=json` for title/channel.
      - `https://r.jina.ai/http://r.jina.ai/http://<youtube-url>` for title, description, chapters, timestamps, and pinned links.
