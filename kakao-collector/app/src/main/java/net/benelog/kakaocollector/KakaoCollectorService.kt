@@ -51,6 +51,10 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     private val seen = LinkedHashSet<String>()
+
+    // 백필 COLLECT 세션에서 '이미 제출한 키'(장기 seen과 별개) — 겹치는 프레임의 같은 메시지를
+    // 세션당 1회만 제출/재전송하기 위한 것. 세션(COLLECT 단계) 시작 때 비운다.
+    private val backfillSubmitted = HashSet<String>()
     private var lastRun = 0L
 
     // 카톡은 방 제목 노드를 '방을 열 때'만 트리에 노출하고 스크롤 중엔 빼버린다.
@@ -301,13 +305,24 @@ class KakaoCollectorService : AccessibilityService() {
             val sender = SenderAssigner.assign(screenW, p.left, p.right, p.top, ownName, nicks)
             val key = DedupeKey.of(activeRoom, p.text, date)
             val isNew = !seen.contains(key)
-            // 백필 COLLECT는 seen을 우회해 재제출 — DB 병합이 중복은 거르고 누락 날짜/시각만 채운다.
-            if (!seekOnly && sender != null && (isNew || backfillCollect)) {
+            // 백필 COLLECT는 장기 seen 캐시를 우회해 재제출하되(DB 병합이 중복은 거르고 누락
+            // 날짜/시각만 채움) 세션 내에서는 키당 1회만 — 겹치는 프레임의 중복 제출 방지.
+            val shouldSubmit = when {
+                seekOnly || sender == null -> false
+                backfillCollect -> backfillSubmitted.add(key)
+                else -> isNew
+            }
+            if (shouldSubmit && sender != null) {
                 firstSeen(key) // seen에 추가(+상한 정리)
                 if (isNew) newCount++
                 val onOutcome: ((MessageStore.Outcome) -> Unit)? =
                     if (backfillCollect) BackfillController::onSubmitOutcome else null
-                Uploader.submit(activeRoom, sender, p.text, date, sentTimes[i], fromScroll, onOutcome)
+                Uploader.submit(
+                    activeRoom, sender, p.text, date, sentTimes[i], fromScroll,
+                    // 로컬엔 완전해도(SKIPPED) 서버는 14일 보관으로 잃었을 수 있다 → 백필은 멱등 재전송.
+                    repostOnSkip = backfillCollect,
+                    onOutcome = onOutcome,
+                )
             }
             // 트리거는 본문만 보므로 보낸이 미상 메시지도 bottom 후보엔 넣되, '새 발화'는 수집된 경우만.
             if (p.bottom > bottomY) {
@@ -585,6 +600,11 @@ class KakaoCollectorService : AccessibilityService() {
     /** 백필 워치독용: settle 이벤트가 안 올 때 수동으로 한 프레임 수집을 돌린다. */
     fun forceScrape() {
         mainHandler.post { handle(allowTrigger = false, fromScroll = true) }
+    }
+
+    /** 백필 COLLECT 단계 시작: 세션 내 1회-제출 캐시를 비운다(이전 세션 것 제거). */
+    fun resetBackfillDedupe() {
+        backfillSubmitted.clear()
     }
 
     /** 백필 종료 알림 등 짧은 사용자 통지(어느 스레드에서 불러도 안전). */

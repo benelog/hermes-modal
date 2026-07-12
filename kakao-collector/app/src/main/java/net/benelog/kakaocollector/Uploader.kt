@@ -49,6 +49,10 @@ object Uploader {
      * 서버가 같은 레코드를 제자리(received_at 유지=순서 보존)에서 합치게 한다.
      * [fromScroll]은 스크롤 settle 수집 여부 — [MessageStore.recordOrMerge]의 날짜 경계 가드용.
      * [sentTime]은 화면에서 읽은 발신 시각(HH:MM, 미상이면 ""). [onOutcome]은 백필 진행 집계용(선택).
+     *
+     * [repostOnSkip]=true(백필 COLLECT): 로컬에 이미 완전하게 저장된 메시지(SKIPPED)라도 서버로
+     * 멱등 재전송한다 — 서버 보관(수신 후 14일)이 폰(30일)보다 짧아 "로컬엔 있는데 서버에서 정리된"
+     * 레코드가 있을 수 있고, 백필이 그 구간을 다시 채우는 유일한 경로다. 서버 키/병합이 중복은 걸러준다.
      */
     fun submit(
         room: String,
@@ -57,13 +61,23 @@ object Uploader {
         ts: String,
         sentTime: String = "",
         fromScroll: Boolean = false,
+        repostOnSkip: Boolean = false,
         onOutcome: ((MessageStore.Outcome) -> Unit)? = null,
     ) {
         exec.execute {
             try {
                 val r = store.recordOrMerge(room, sender, text, ts, sentTime, System.currentTimeMillis(), fromScroll)
                 onOutcome?.invoke(r.outcome)
-                if (r.outcome == MessageStore.Outcome.SKIPPED) return@execute
+                if (r.outcome == MessageStore.Outcome.SKIPPED) {
+                    if (repostOnSkip) {
+                        // 어느 행에 합쳐졌는지 모르므로 markSent 없이 들어온 값 그대로 재전송만 한다.
+                        Poster.post(
+                            JSONObject().put("room", room).put("sender", sender).put("text", text)
+                                .put("ts", ts).put("sent_time", sentTime),
+                        )
+                    }
+                    return@execute
+                }
                 // 병합 후 DB에 남은 값(r.*)을 보낸다 — 서버 저장소가 폰 DB와 같은 상태로 수렴.
                 val ok = Poster.post(
                     JSONObject().put("room", room).put("sender", sender).put("text", r.text)
@@ -115,6 +129,40 @@ object Uploader {
     fun testPost(room: String, sender: String, text: String) {
         exec.execute {
             Poster.post(JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ""))
+        }
+    }
+
+    /**
+     * 백필 후 전송 무결성 검증: 미전송분을 먼저 밀어낸 뒤(flush) 로컬 SQLite의 발신일별
+     * 건수(중복제거 키 기준)와 서버 kakao-stats 의 발신일별 건수를 비교한다([TransferCheck]).
+     * exec 는 FIFO 단일 스레드라, 백필 중 큐에 쌓인 제출이 모두 처리된 '뒤에' 실행된다 —
+     * 즉 비교 시점의 로컬/서버 상태가 최종본이다. [onResult]는 백그라운드 스레드에서 불린다.
+     */
+    fun verifyTransfer(room: String, start: String, end: String, onResult: (TransferCheck.Report) -> Unit) {
+        exec.execute {
+            try {
+                flushPending(force = true)
+                val local = store.distinctCountsByDate(room, start, end)
+                val unsent = store.unsentCount(room)
+                val url = Settings.statsUrl +
+                    "?token=" + java.net.URLEncoder.encode(Settings.token, "UTF-8") +
+                    "&room=" + java.net.URLEncoder.encode(room, "UTF-8") +
+                    "&start=" + start + "&end=" + end
+                val json = Poster.getJson(url)
+                if (json == null || !json.optBoolean("ok")) {
+                    val msg = "전송 검증 ✖ 서버 통계 조회 실패 — 네트워크/Stats URL 확인"
+                    onResult(TransferCheck.Report(false, msg, msg))
+                    return@execute
+                }
+                val counts = json.optJSONObject("counts") ?: JSONObject()
+                val server = HashMap<String, Int>()
+                for (k in counts.keys()) server[k] = counts.getInt(k)
+                onResult(TransferCheck.compare(start, end, local, server, unsent))
+            } catch (e: Exception) {
+                Log.w(KakaoCollectorService.TAG, "verifyTransfer failed: ${e.message}")
+                val msg = "전송 검증 ✖ 오류: ${e.message}"
+                onResult(TransferCheck.Report(false, msg, msg))
+            }
         }
     }
 }

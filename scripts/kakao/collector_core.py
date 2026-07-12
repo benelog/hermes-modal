@@ -314,6 +314,40 @@ def select_messages(items, room, since, now: datetime) -> list[dict]:
     return selected
 
 
+def count_by_sent_date(items, room: str, start: str, end: str) -> dict:
+    """Per-send-date record counts for one room, for transfer verification.
+
+    The device compares these against its local SQLite counts (distinct dedupe
+    keys per `client_time` date) after an explicit backfill run — equal buckets
+    mean nothing was lost in transmission. Server records ARE distinct dedupe
+    keys (one Dict entry per `message_key`), so record count == distinct count.
+
+    Returns {"counts": {date: n}, "timed": n, "dateless": n, "total": n} where
+    `counts` covers client_time dates within [start, end] (ISO, inclusive),
+    `timed` is how many of those also carry a non-blank sent_time, and
+    `dateless` counts the room's records with no scraped date (range-agnostic —
+    informational, they cannot be bucketed).
+    """
+    counts: dict[str, int] = {}
+    timed = 0
+    dateless = 0
+    for rec in items:
+        if rec.get("room") != room:
+            continue
+        date = (rec.get("client_time") or "").strip()
+        if not date:
+            dateless += 1
+            continue
+        if start and date < start:
+            continue
+        if end and date > end:
+            continue
+        counts[date] = counts.get(date, 0) + 1
+        if normalize_sent_time(rec.get("sent_time")):
+            timed += 1
+    return {"counts": counts, "timed": timed, "dateless": dateless, "total": sum(counts.values())}
+
+
 def expired_keys(items_with_keys, now: datetime, retention_days: int = 14) -> list[str]:
     """Return keys whose `received_at` is older than `retention_days`.
 

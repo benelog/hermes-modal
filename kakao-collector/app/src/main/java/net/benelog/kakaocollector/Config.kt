@@ -20,6 +20,9 @@ object Config {
     /** Modal 요약 엔드포인트(고정). 방 멘션 요약 트리거가 호출한다. */
     const val SUMMARIZE_URL = "https://benelog--kakao-summarize.modal.run"
 
+    /** Modal 통계 엔드포인트(고정). 백필 후 전송 검증(로컬 vs 서버 발신일별 건수 비교)이 호출한다. */
+    const val STATS_URL = "https://benelog--kakao-stats.modal.run"
+
     /** Modal 시크릿 KAKAO_COLLECTOR_TOKEN과 동일한 값. (~/.hermes/.env 참고) */
     const val TOKEN = "PUT_YOUR_KAKAO_COLLECTOR_TOKEN_HERE"
 

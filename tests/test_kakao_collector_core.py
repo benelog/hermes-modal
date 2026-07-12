@@ -394,6 +394,37 @@ class SentTimeTests(unittest.TestCase):
         self.assertEqual(rec["sent_time"], "")
 
 
+class CountBySentDateTests(unittest.TestCase):
+    def _items(self):
+        def rec(room, date, st=""):
+            return {"room": room, "text": f"{room}{date}{st}", "client_time": date,
+                    "sent_time": st, "received_at": "2026-07-13T00:00:00+00:00"}
+        return [
+            rec("ABC", "2026-07-10"),
+            rec("ABC", "2026-07-10", "14:20"),
+            rec("ABC", "2026-07-11"),
+            rec("ABC", ""),           # 날짜 미상(범위 밖 정보)
+            rec("ABC", "2026-07-01"), # 범위 밖
+            rec("OTHER", "2026-07-10"),
+        ]
+
+    def test_buckets_within_range_per_room(self):
+        out = collector_core.count_by_sent_date(self._items(), "ABC", "2026-07-10", "2026-07-12")
+        self.assertEqual(out["counts"], {"2026-07-10": 2, "2026-07-11": 1})
+        self.assertEqual(out["total"], 3)
+        self.assertEqual(out["timed"], 1)
+        self.assertEqual(out["dateless"], 1)
+
+    def test_blank_range_means_unbounded(self):
+        out = collector_core.count_by_sent_date(self._items(), "ABC", "", "")
+        self.assertEqual(out["total"], 4)  # 날짜 있는 ABC 레코드 전부
+
+    def test_room_isolation(self):
+        out = collector_core.count_by_sent_date(self._items(), "OTHER", "2026-07-01", "2026-07-31")
+        self.assertEqual(out["counts"], {"2026-07-10": 1})
+        self.assertEqual(out["dateless"], 0)
+
+
 class EffectiveSentAtTests(unittest.TestCase):
     def test_date_and_time_win(self):
         rec = {"client_time": "2026-06-24", "sent_time": "14:20",

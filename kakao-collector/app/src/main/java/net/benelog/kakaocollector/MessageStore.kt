@@ -217,6 +217,33 @@ class MessageStore(context: Context) :
         writableDatabase.delete("messages", "collected_at < ?", arrayOf(cutoffMillis.toString()))
     }
 
+    /**
+     * 발신일(client_time)별 '중복제거 키 기준' 건수 — 전송 검증용. sender 흔들림으로 같은
+     * 키가 여러 행일 수 있어 DISTINCT text 로 센다(서버는 키당 레코드 1개라 레코드 수와 대응).
+     * 범위는 ISO 날짜 문자열 [start, end] 포함(사전순 == 시간순).
+     */
+    fun distinctCountsByDate(room: String, start: String, end: String): Map<String, Int> {
+        val out = LinkedHashMap<String, Int>()
+        readableDatabase.rawQuery(
+            "SELECT client_time, COUNT(DISTINCT text) FROM messages " +
+                "WHERE room=? AND client_time>=? AND client_time<=? AND client_time<>'' " +
+                "GROUP BY client_time ORDER BY client_time",
+            arrayOf(room, start, end),
+        ).use { c ->
+            while (c.moveToNext()) out[c.getString(0)] = c.getInt(1)
+        }
+        return out
+    }
+
+    /** 이 방의 미전송(sent_ok=0) 행 수 — 전송 검증에서 '아직 안 간 것'의 직접 증거. */
+    fun unsentCount(room: String): Int {
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM messages WHERE room=? AND sent_ok=0", arrayOf(room),
+        ).use { c ->
+            return if (c.moveToFirst()) c.getInt(0) else 0
+        }
+    }
+
     /** 최근 행들의 dedupe 키(인메모리 seen 시드용). sender 제외(room,text,client_time). */
     fun recentKeys(limit: Int): Set<String> {
         val out = LinkedHashSet<String>()

@@ -232,6 +232,7 @@ object BackfillController {
     private fun beginCollect(reason: String) {
         phase = Phase.COLLECT
         steps = 0; noProgress = 0; lastSignature = ""; awaitingFrame = false
+        KakaoCollectorService.instance?.resetBackfillDedupe() // 세션 내 1회-제출 캐시 초기화
         Log.i(TAG, "backfill collect begins ($reason)")
         publish("수집 시작($reason) — 아래로 스크롤하며 저장")
         scheduleSwipe(gen, COLLECT_PACE_MS)
@@ -300,9 +301,26 @@ object BackfillController {
         phase = endPhase
         val summary = "$message · 신규 ${inserted}건 · 갱신 ${updated}건"
         Log.i(TAG, "backfill finished: $summary")
-        publish(summary)
-        Uploader.flushUnsent() // 수집 중 전송 실패분을 이 기회에 재시도
         KakaoCollectorService.instance?.showToast("백필 수집: $summary")
+
+        // 정상 종료(중지 포함)면 전송 무결성 검증: 미전송분 flush 후 로컬(발신일별 건수) vs
+        // 서버(kakao-stats) 비교. Uploader 큐(FIFO)라 이번 세션의 제출이 모두 끝난 뒤 돈다.
+        val req = request
+        if (endPhase == Phase.DONE && req != null) {
+            val g = gen
+            publish("$summary\n전송 검증 중…")
+            Uploader.verifyTransfer(req.room, fromDate, toDate) { report ->
+                handler.post {
+                    if (g != gen) return@post // 그 사이 새 세션이 시작됨
+                    status = status.copy(message = "$summary\n${report.detail}")
+                    KakaoCollectorService.instance?.showToast(report.summary)
+                    Log.i(TAG, "backfill verify: ${report.detail.replace("\n", " | ")}")
+                }
+            }
+        } else {
+            publish(summary)
+            Uploader.flushUnsent() // 실패 종료라도 수집 중 전송 실패분은 재시도
+        }
     }
 
     private fun publish(message: String) {

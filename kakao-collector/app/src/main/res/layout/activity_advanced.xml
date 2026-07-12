@@ -54,6 +54,16 @@
             android:hint="https://benelog--kakao-summarize.modal.run"
             android:inputType="textUri" />
 
+        <TextView
+            style="@style/FieldLabel"
+            android:text="Modal Stats URL (백필 후 전송 검증)" />
+
+        <EditText
+            android:id="@+id/etStatsUrl"
+            style="@style/FieldInput"
+            android:hint="https://benelog--kakao-stats.modal.run"
+            android:inputType="textUri" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"

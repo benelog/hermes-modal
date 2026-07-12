@@ -244,6 +244,7 @@ class MainActivity : AppCompatActivity() {
             append("대상 방: ").append(Settings.roomNamesList().joinToString(", ")).append('\n')
             append("수집: ").append(Settings.ingestUrl).append('\n')
             append("요약: ").append(Settings.summarizeUrl).append('\n')
+            append("통계: ").append(Settings.statsUrl).append('\n')
             append("토큰: ").append(if (Settings.isTokenSet()) "설정됨" else "⚠ 미설정").append('\n')
             append("자동발신: ").append(if (Settings.autoReply) "ON" else "OFF")
             append(" (멘션='").append(Settings.effectiveMention()).append("' + '")

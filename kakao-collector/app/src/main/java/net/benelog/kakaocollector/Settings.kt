@@ -15,6 +15,7 @@ object Settings {
     private const val KEY_TOKEN = "token"
     private const val KEY_INGEST_URL = "ingest_url"
     private const val KEY_SUMMARIZE_URL = "summarize_url"
+    private const val KEY_STATS_URL = "stats_url"
     private const val KEY_ROOM_NAME = "room_name"
     private const val KEY_ROOM_NAMES = "room_names"
     private const val KEY_OWN_NAME = "own_name"
@@ -55,6 +56,11 @@ object Settings {
     var summarizeUrl: String
         get() = get(KEY_SUMMARIZE_URL, Config.SUMMARIZE_URL)
         set(v) = prefs.edit().putString(KEY_SUMMARIZE_URL, v).apply()
+
+    /** 전송 검증용 통계 엔드포인트(발신일별 건수). */
+    var statsUrl: String
+        get() = get(KEY_STATS_URL, Config.STATS_URL)
+        set(v) = prefs.edit().putString(KEY_STATS_URL, v).apply()
 
     /** 대상 방 목록 raw 문자열(줄바꿈 구분). 미저장이면 기존 단일 room_name으로 폴백. */
     var roomNamesRaw: String
@@ -152,6 +158,7 @@ object Settings {
         token: String,
         ingestUrl: String,
         summarizeUrl: String,
+        statsUrl: String,
         ownName: String,
         msgId: String,
         nameId: String,
@@ -167,6 +174,7 @@ object Settings {
             .putString(KEY_TOKEN, token.trim())
             .putString(KEY_INGEST_URL, ingestUrl.trim())
             .putString(KEY_SUMMARIZE_URL, summarizeUrl.trim())
+            .putString(KEY_STATS_URL, statsUrl.trim())
             .putString(KEY_OWN_NAME, ownName.trim())
             .putString(KEY_MSG_ID, msgId.trim())
             .putString(KEY_NAME_ID, nameId.trim())

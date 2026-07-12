@@ -355,6 +355,38 @@ def kakao_messages(token: str = "", since: str = "1day", room: str = ""):
     return {"ok": True, "count": len(selected), "messages": selected}
 
 
+@app.function(
+    image=image,
+    secrets=[secret],
+    timeout=60,
+    env=common_env,
+)
+@modal.fastapi_endpoint(method="GET", label="kakao-stats")
+def kakao_stats(token: str = "", room: str = "", start: str = "", end: str = ""):
+    """Per-send-date record counts for one room (transfer verification).
+
+    The collector app calls this right after an explicit backfill run and compares
+    the buckets against its local SQLite counts — equal means nothing was lost in
+    transmission. `start`/`end` are ISO dates (inclusive) bounding `client_time`.
+    """
+    import os
+    import sys
+
+    from fastapi import HTTPException
+
+    if token != os.environ.get("KAKAO_COLLECTOR_TOKEN", ""):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not room:
+        raise HTTPException(status_code=400, detail="room is required")
+
+    sys.path.insert(0, KAKAO_SCRIPTS_PATH)
+    from kakao.collector_core import count_by_sent_date
+
+    records = [rec for _key, rec in kakao_dict.items()]
+    stats = count_by_sent_date(records, room, start, end)
+    return {"ok": True, "room": room, "start": start, "end": end, **stats}
+
+
 # Max messages fed into one summary prompt. A `since` window on a busy room could
 # be large; cap to the most recent N so the prompt stays bounded.
 KAKAO_SUMMARY_MAX_MSGS = 600

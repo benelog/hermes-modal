@@ -16,6 +16,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
     private lateinit var etToken: EditText
     private lateinit var etUrl: EditText
     private lateinit var etSummarizeUrl: EditText
+    private lateinit var etStatsUrl: EditText
     private lateinit var etOwnName: EditText
     private lateinit var etMsgId: EditText
     private lateinit var etNameId: EditText
@@ -36,6 +37,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         etToken = findViewById(R.id.etToken)
         etUrl = findViewById(R.id.etUrl)
         etSummarizeUrl = findViewById(R.id.etSummarizeUrl)
+        etStatsUrl = findViewById(R.id.etStatsUrl)
         etOwnName = findViewById(R.id.etOwnName)
         etMsgId = findViewById(R.id.etMsgId)
         etNameId = findViewById(R.id.etNameId)
@@ -65,6 +67,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
         etToken.setText(if (Settings.isTokenSet()) Settings.token else "")
         etUrl.setText(Settings.ingestUrl)
         etSummarizeUrl.setText(Settings.summarizeUrl)
+        etStatsUrl.setText(Settings.statsUrl)
         etOwnName.setText(Settings.ownName)
         etMsgId.setText(Settings.msgId)
         etNameId.setText(Settings.nameId)
@@ -82,6 +85,7 @@ class AdvancedSettingsActivity : AppCompatActivity() {
             token = etToken.text.toString(),
             ingestUrl = etUrl.text.toString(),
             summarizeUrl = etSummarizeUrl.text.toString(),
+            statsUrl = etStatsUrl.text.toString(),
             ownName = etOwnName.text.toString(),
             msgId = etMsgId.text.toString(),
             nameId = etNameId.text.toString(),
