@@ -1,15 +1,18 @@
 package net.benelog.kakaocollector
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.app.Notification
 import android.app.RemoteInput
 import android.content.Intent
+import android.graphics.Path
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -26,6 +29,15 @@ class KakaoCollectorService : AccessibilityService() {
 
     companion object {
         const val TAG = "KakaoCollector"
+
+        /**
+         * 살아있는 서비스 인스턴스(없으면 null). [BackfillController]와 MainActivity가
+         * 제스처/방 탐색/상태 확인에 쓴다. 시스템이 서비스를 바인딩/해제할 때만 갱신.
+         */
+        @Volatile
+        var instance: KakaoCollectorService? = null
+            private set
+
         private const val MIN_INTERVAL_MS = 500L
         // 스크롤이 멈춘 뒤 이 시간만큼 지나면 수집(스크롤 중 흔들리는 좌표로 오정렬하는 것 방지).
         private const val SCROLL_SETTLE_MS = 250L
@@ -67,10 +79,23 @@ class KakaoCollectorService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         Settings.init(this) // Application에서 이미 했지만 방어적으로(멱등).
         Uploader.init(this, RETENTION_MS)
         // 재시작해도 최근 수집분을 '이미 봄'으로 인식 → 재전송/재발화 방지.
         seen.addAll(Uploader.recentKeys(SEEN_CAP))
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        if (instance === this) instance = null
+        BackfillController.onServiceDisconnected()
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        BackfillController.onServiceDisconnected()
+        super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -95,6 +120,9 @@ class KakaoCollectorService : AccessibilityService() {
             // 스크롤은 멈춘 뒤(settle) 한 번만 수집한다. 스크롤 중 프레임의 흔들리는 bounds로
             // 남 메시지를 내 것으로 오판(→오수집)하는 것을 막는다. 트리거는 스크롤에선 불허(백필 재발화 방지).
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                // 스티키 날짜 뱃지는 '스크롤 중'에만 트리에 뜬다 — 백필 진행 중이면 settle을
+                // 기다리지 않고 여기서 날짜만 읽어 seek/collect 종료 판정에 보탠다(수집은 안 함).
+                if (BackfillController.isRunning()) peekDatesForBackfill()
                 mainHandler.removeCallbacks(settleRunnable)
                 mainHandler.postDelayed(settleRunnable, SCROLL_SETTLE_MS)
             }
@@ -131,6 +159,8 @@ class KakaoCollectorService : AccessibilityService() {
                 }
                 // title == null: 방 식별 불가 → 직전 상태 유지(섣불리 해제/입장하지 않음).
             }
+            // 백필 세션에 방 판별 결과 통지(제목을 실제로 읽은 이벤트만 — 미상은 통지하지 않음).
+            if (title != null) BackfillController.onRoomState(matched ?: "")
             if (inTargetRoom && activeRoom.isNotEmpty()) scrape(allowTrigger, fromScroll)
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
@@ -174,18 +204,29 @@ class KakaoCollectorService : AccessibilityService() {
 
     /**
      * 현재 화면의 말풍선을 2-pass로 수집한다.
-     *  PASS 1: 메시지(본문+좌표)·닉네임(top Y)·날짜 마커(top Y)를 모은다(즉시 submit 안 함).
-     *  PASS 2: 좌표로 각 메시지의 날짜([DateAssigner])와 보낸이([SenderAssigner])를 정하고,
-     *          sender 를 뺀 dedupe 키로 1차 차단 후 [Uploader.submit]. 보낸이를 못 정하면(닉네임이
+     *  PASS 1: 메시지(본문+좌표)·닉네임(top Y)·날짜 마커(top Y)·시각 라벨(top Y)을 모은다(즉시 submit 안 함).
+     *  PASS 2: 좌표로 각 메시지의 날짜([DateAssigner])·시각([TimeAssigner])·보낸이([SenderAssigner])를
+     *          정하고, sender 를 뺀 dedupe 키로 1차 차단 후 [Uploader.submit]. 보낸이를 못 정하면(닉네임이
      *          화면 밖) 그 메시지는 스킵 — 다음 스크롤에서 닉네임과 함께 보일 때 잡혀 오귀속/중복을 막는다.
      * 동시에 '맨 아래(최신) 새 메시지'를 추적해 allowTrigger면 멘션 요약 명령인지 판정한다.
+     *
+     * 백필 세션 중엔 동작이 달라진다:
+     *  - SEEK(과거로 이동): 수집하지 않고 프레임 관찰값만 [BackfillController]에 보고
+     *    (여기서 수집하면 received_at 역순 적재 = 서버 대화 순서 붕괴).
+     *  - COLLECT(아래로 수집): seen 캐시를 우회해 이미 수집된 메시지도 다시 제출 —
+     *    [MessageStore.recordOrMerge]가 중복은 걸러내고 누락된 날짜/시각만 제자리 갱신.
+     *  - 두 단계 모두 멘션 요약 트리거는 불허(백필로 지나가는 옛 명령 재발화 방지).
      */
     private fun scrape(allowTrigger: Boolean, fromScroll: Boolean) {
         val ownName = Settings.ownName
         val nameId = Settings.nameId
         val msgId = Settings.msgId
         val dateId = Settings.dateIndicatorId
+        val timeId = Settings.timeId
         val rect = android.graphics.Rect()
+
+        val seekOnly = BackfillController.seekActive(activeRoom)
+        val backfillCollect = BackfillController.collectActive(activeRoom)
 
         val roots = collectRoots()
         // 화면폭은 말풍선 bounds와 '같은 좌표계'여야 내/남 정렬 판정이 맞다. 디스플레이 크기/밀도
@@ -203,6 +244,7 @@ class KakaoCollectorService : AccessibilityService() {
         val pending = ArrayList<Pending>()
         val nicks = ArrayList<SenderAssigner.NickMarker>()
         val dateMarkers = ArrayList<DateAssigner.Marker>()
+        val timeMarkers = ArrayList<TimeAssigner.Marker>()
         for (root in roots) {
             walk(root) { n ->
                 val id = n.viewIdResourceName ?: ""
@@ -221,6 +263,14 @@ class KakaoCollectorService : AccessibilityService() {
                             dateMarkers.add(DateAssigner.Marker(top = rect.top, date = date))
                         }
                     }
+                    timeId.isNotEmpty() && id == timeId -> {
+                        // 발신 시각("오후 3:01"). 카톡 버전에 따라 트리에 없을 수 있음 — 있으면 수집.
+                        val time = KakaoTime.normalize(value)
+                        if (time.isNotEmpty()) {
+                            n.getBoundsInScreen(rect)
+                            timeMarkers.add(TimeAssigner.Marker(top = rect.top, time = time))
+                        }
+                    }
                     msgId.isNotEmpty() && id == msgId -> {
                         // 답장에 인용된 원문(영문 UI)은 중복이므로 건너뜀.
                         if (value.startsWith("Replied message") || value.startsWith("Original message")) {
@@ -235,9 +285,13 @@ class KakaoCollectorService : AccessibilityService() {
                 }
             }
         }
+        // RecyclerView 자식 순서는 재활용으로 뒤섞일 수 있다 — 화면 위→아래 순으로 제출해야
+        // 서버 received_at 이 대화 순서를 따라간다(특히 백필 COLLECT).
+        pending.sortBy { it.top }
 
-        // PASS 2 — 날짜·보낸이 결합 후 dedupe & submit.
+        // PASS 2 — 날짜·시각·보낸이 결합 후 dedupe & submit.
         val dates = DateAssigner.assign(dateMarkers, pending.map { it.top })
+        val sentTimes = TimeAssigner.assign(timeMarkers, dateMarkers.map { it.top }, pending.map { it.top })
         var newCount = 0
         var bottomY = Int.MIN_VALUE
         var bottomText = ""
@@ -247,10 +301,13 @@ class KakaoCollectorService : AccessibilityService() {
             val sender = SenderAssigner.assign(screenW, p.left, p.right, p.top, ownName, nicks)
             val key = DedupeKey.of(activeRoom, p.text, date)
             val isNew = !seen.contains(key)
-            if (sender != null && isNew) {
+            // 백필 COLLECT는 seen을 우회해 재제출 — DB 병합이 중복은 거르고 누락 날짜/시각만 채운다.
+            if (!seekOnly && sender != null && (isNew || backfillCollect)) {
                 firstSeen(key) // seen에 추가(+상한 정리)
-                newCount++
-                Uploader.submit(activeRoom, sender, p.text, date, fromScroll)
+                if (isNew) newCount++
+                val onOutcome: ((MessageStore.Outcome) -> Unit)? =
+                    if (backfillCollect) BackfillController::onSubmitOutcome else null
+                Uploader.submit(activeRoom, sender, p.text, date, sentTimes[i], fromScroll, onOutcome)
             }
             // 트리거는 본문만 보므로 보낸이 미상 메시지도 bottom 후보엔 넣되, '새 발화'는 수집된 경우만.
             if (p.bottom > bottomY) {
@@ -261,8 +318,19 @@ class KakaoCollectorService : AccessibilityService() {
         }
         if (newCount > 0) Log.i(TAG, "posted $newCount new message(s)")
 
+        // 백필 세션에 프레임 관찰값 보고: 화면에서 확인된 가장 과거 날짜 + 진행 감지 서명.
+        if (seekOnly || backfillCollect) {
+            val frameMinDate = BackfillPlanner.minDate(
+                dateMarkers.minOfOrNull { it.date } ?: "",
+                dates.filter { it.isNotEmpty() }.minOrNull() ?: "",
+            )
+            val signature = pending.firstOrNull()?.let { "${it.top}#${it.text}" } ?: "empty"
+            BackfillController.onFrame(activeRoom, BackfillController.Frame(frameMinDate, signature))
+        }
+
         // 맨 아래(최신) 메시지가 '새것'이고 멘션 요약 명령이면 발화(열린 방 → 입력창으로 발신).
-        if (allowTrigger && bottomIsNew && bottomText.isNotEmpty()) {
+        // 백필 중엔 불허 — 스크롤로 지나가는 '옛 명령'이 새것처럼 보여 재발화할 수 있다.
+        if (allowTrigger && !seekOnly && !backfillCollect && bottomIsNew && bottomText.isNotEmpty()) {
             val room = activeRoom
             triggerSummary(room, bottomText) { msg -> mainHandler.post { sendToRoom(room, msg) } }
         }
@@ -429,6 +497,114 @@ class KakaoCollectorService : AccessibilityService() {
             depth++
         }
         return node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+    }
+
+    // ── 백필 수집 지원([BackfillController]가 main 스레드에서 호출) ──────────
+
+    /** 지금 이 순간 '대상 방 화면'인가(패키지+툴바 제목 재확인). 다른 앱/방에 제스처 오발사 방지. */
+    fun inRoomNow(room: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (root.packageName?.toString() != Config.KAKAO_PACKAGE) return false
+        val title = currentRoomTitle(root) ?: return false
+        return RoomMatch.match(title, Settings.roomNamesList()) == room
+    }
+
+    /**
+     * 카톡 화면에서 대상 방으로 진입 시도(자동 방문). 우선순위:
+     *  (1) 다른 방 안이면(입력창 존재=방 화면) 뒤로 나가 목록으로,
+     *  (2) 목록에서 방 제목으로 시작하는 행을 찾아 클릭,
+     *  (3) 방 행이 안 보이면 '채팅' 탭 클릭(친구/더보기 탭에서 시작한 경우).
+     * 진입 성공 여부는 이후 WINDOW_STATE_CHANGED → [handle]의 방 판별이 확정한다.
+     */
+    fun tryOpenRoom(room: String): Boolean {
+        try {
+            val roots = collectRoots()
+            val inputId = Settings.inputId
+            if (inputId.isNotBlank() && findById(roots, inputId) != null) {
+                if (!inRoomNow(room)) performGlobalAction(GLOBAL_ACTION_BACK)
+                return false
+            }
+            for (r in roots) {
+                if (r.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+                for (n in r.findAccessibilityNodeInfosByText(room)) {
+                    val v = nodeValue(n)
+                    val id = n.viewIdResourceName ?: ""
+                    if (!v.startsWith(room)) continue // 목록 행 제목은 '방이름(+인원수)'로 시작
+                    // 툴바 제목/말풍선 본문에 방 이름이 있는 경우는 클릭 대상이 아니다.
+                    if (id == Config.TOOLBAR_TITLE_ID || (Settings.msgId.isNotEmpty() && id == Settings.msgId)) continue
+                    if (clickNodeOrAncestor(n)) {
+                        Log.i(TAG, "backfill: 방 목록에서 '$room' 클릭")
+                        return true
+                    }
+                }
+            }
+            for (r in roots) {
+                if (r.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+                for (n in r.findAccessibilityNodeInfosByText("채팅")) {
+                    val v = nodeValue(n)
+                    if ((v == "채팅" || v.startsWith("채팅,") || v.startsWith("채팅 탭")) && clickNodeOrAncestor(n)) {
+                        return false
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "tryOpenRoom failed: ${e.message}")
+        }
+        return false
+    }
+
+    /**
+     * 세로 드래그 제스처. downward=true 면 손가락을 아래로(=과거 메시지 보기),
+     * false 면 위로(=최신 방향). 화면 중앙 세로 구간(상단 툴바·하단 입력창 회피)만 쓴다.
+     * 플링이 아니라 '끝까지 끌고 가는' 드래그라 한 걸음 거리(distanceRatio)가 정확히 지켜진다.
+     */
+    fun performSwipe(downward: Boolean, distanceRatio: Float, durationMs: Long): Boolean {
+        val b = android.graphics.Rect()
+        rootInActiveWindow?.getBoundsInScreen(b)
+        if (b.width() <= 0 || b.height() <= 0) {
+            b.set(0, 0, resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+        }
+        if (b.width() <= 0 || b.height() <= 0) return false
+        val x = b.exactCenterX()
+        val dist = b.height() * distanceRatio
+        val yTop = b.exactCenterY() - dist / 2
+        val yBottom = b.exactCenterY() + dist / 2
+        val (startY, endY) = if (downward) yTop to yBottom else yBottom to yTop
+        val path = Path().apply { moveTo(x, startY); lineTo(x, endY) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .build()
+        return try {
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) {
+            Log.w(TAG, "dispatchGesture failed: ${e.message}")
+            false
+        }
+    }
+
+    /** 백필 워치독용: settle 이벤트가 안 올 때 수동으로 한 프레임 수집을 돌린다. */
+    fun forceScrape() {
+        mainHandler.post { handle(allowTrigger = false, fromScroll = true) }
+    }
+
+    /** 백필 종료 알림 등 짧은 사용자 통지(어느 스레드에서 불러도 안전). */
+    fun showToast(msg: String) {
+        mainHandler.post { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+    }
+
+    /** 스크롤 이벤트 순간의 스티키 날짜 뱃지만 빠르게 읽어 백필 판정에 보탠다(수집 아님). */
+    private fun peekDatesForBackfill() {
+        try {
+            val root = rootInActiveWindow ?: return
+            val dateId = Settings.dateIndicatorId
+            if (dateId.isEmpty()) return
+            for (n in root.findAccessibilityNodeInfosByViewId(dateId)) {
+                val date = KakaoDate.normalize(nodeValue(n))
+                if (date.isNotEmpty()) BackfillController.onDatePeek(date)
+            }
+        } catch (e: Exception) {
+            // 스크롤 이벤트 빈도로 불리므로 조용히 무시(다음 이벤트에서 다시 시도).
+        }
     }
 
     /** 처음 보는 key면 기억하고 true. 용량 상한 초과 시 가장 오래된 것부터 제거. */

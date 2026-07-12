@@ -327,6 +327,123 @@ class PlanIngestTests(unittest.TestCase):
         self.assertEqual(plan["action"], "update")
         self.assertEqual(plan["rec"]["sender"], "지민경")
 
+    # ── sent_time(발신 시각) 병합 ─────────────────────────────────
+
+    def test_timeless_existing_upgraded_by_timed_incoming(self):
+        e = self._rec("동일한 메시지")
+        incoming = self._rec("동일한 메시지")
+        incoming["sent_time"] = "14:20"
+        plan = collector_core.plan_ingest([("E", e)], incoming, "K")
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["key"], "E")  # in place — received_at(순서) 보존
+        self.assertEqual(plan["rec"]["sent_time"], "14:20")
+
+    def test_conflicting_times_keep_earliest(self):
+        # 시각 오귀속은 늦은 값으로만 튄다(아래쪽 라벨 오결합) → 이른 관측이 남아야 한다.
+        e = self._rec("동일한 메시지")
+        e["sent_time"] = "09:05"
+        late, early = self._rec("동일한 메시지"), self._rec("동일한 메시지")
+        late["sent_time"], early["sent_time"] = "14:20", "08:59"
+        self.assertEqual(collector_core.plan_ingest([("E", e)], late, "K")["action"], "skip")
+        plan = collector_core.plan_ingest([("E", e)], early, "K")
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["rec"]["sent_time"], "08:59")
+
+    def test_truncated_incoming_still_fills_date_and_time(self):
+        # 잘린 재수집이라도 실린 날짜/시각은 기존(더 완전한) 행에 채운다 — 본문은 기존 유지.
+        e = self._rec("오픈은 10시더라고 정말로 그래서 줄섰다", ct="")
+        incoming = self._rec("오픈은 10시더라고 정말로", ct="2026-06-24")
+        incoming["sent_time"] = "10:02"
+        plan = collector_core.plan_ingest([("E", e)], incoming, "K")
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["rec"]["text"], "오픈은 10시더라고 정말로 그래서 줄섰다")
+        self.assertEqual(plan["rec"]["client_time"], "2026-06-24")
+        self.assertEqual(plan["rec"]["sent_time"], "10:02")
+
+    def test_extension_update_fills_date_and_time(self):
+        e = self._rec("오픈은 10시더라고 정말로", ct="")
+        incoming = self._rec("오픈은 10시더라고 정말로 그래서 줄섰다", ct="2026-06-24")
+        incoming["sent_time"] = "10:02"
+        plan = collector_core.plan_ingest([("E", e)], incoming, "K")
+        self.assertEqual(plan["action"], "update")
+        self.assertEqual(plan["rec"]["text"], "오픈은 10시더라고 정말로 그래서 줄섰다")
+        self.assertEqual(plan["rec"]["client_time"], "2026-06-24")
+        self.assertEqual(plan["rec"]["sent_time"], "10:02")
+
+
+class SentTimeTests(unittest.TestCase):
+    def test_normalize_accepts_hhmm_only(self):
+        self.assertEqual(collector_core.normalize_sent_time("14:20"), "14:20")
+        self.assertEqual(collector_core.normalize_sent_time(" 09:05 "), "09:05")
+        for bad in ("", None, "9:05", "24:00", "14:60", "오후 3:01", "2026-06-24"):
+            self.assertEqual(collector_core.normalize_sent_time(bad), "")
+
+    def test_earliest_time(self):
+        self.assertEqual(collector_core.earliest_time("09:05", "14:20"), "09:05")
+        self.assertEqual(collector_core.earliest_time("", "14:20"), "14:20")
+        self.assertEqual(collector_core.earliest_time("14:20", ""), "14:20")
+        self.assertEqual(collector_core.earliest_time("", ""), "")
+
+    def test_normalize_item_includes_sent_time(self):
+        now = datetime(2026, 6, 20, 0, 0, tzinfo=timezone.utc)
+        rec = collector_core.normalize_item(
+            {"room": "ABC", "text": "안녕", "ts": "2026-06-19", "sent_time": "21:40"}, now
+        )
+        self.assertEqual(rec["sent_time"], "21:40")
+        rec = collector_core.normalize_item({"room": "ABC", "text": "안녕"}, now)
+        self.assertEqual(rec["sent_time"], "")
+
+
+class EffectiveSentAtTests(unittest.TestCase):
+    def test_date_and_time_win(self):
+        rec = {"client_time": "2026-06-24", "sent_time": "14:20",
+               "received_at": "2026-06-30T00:00:00+00:00"}
+        dt = collector_core.effective_sent_at(rec)
+        self.assertEqual((dt.year, dt.month, dt.day, dt.hour, dt.minute), (2026, 6, 24, 14, 20))
+        self.assertEqual(dt.utcoffset(), timedelta(hours=9))  # KST
+
+    def test_date_only_uses_received_clock_on_that_date(self):
+        # 날짜만 알면 그 날짜(KST) + 수신 시:분 — 같은 백필 배치 안에서는 수신 순서가
+        # 곧 대화 순서라 상대 순서가 보존된다.
+        rec = {"client_time": "2026-06-24", "sent_time": "",
+               "received_at": "2026-06-30T05:00:00+00:00"}  # KST 14:00
+        dt = collector_core.effective_sent_at(rec)
+        self.assertEqual((dt.year, dt.month, dt.day, dt.hour), (2026, 6, 24, 14))
+
+    def test_no_date_falls_back_to_received(self):
+        rec = {"client_time": "", "sent_time": "", "received_at": "2026-06-30T05:00:00+00:00"}
+        self.assertEqual(
+            collector_core.effective_sent_at(rec),
+            datetime(2026, 6, 30, 5, 0, tzinfo=timezone.utc),
+        )
+
+    def test_backfilled_week_sorts_in_true_order(self):
+        # 일주일치를 오늘 한꺼번에 백필해도(수신은 전부 오늘) 발신 날짜/시각 순으로 정렬된다.
+        now = datetime(2026, 7, 13, 3, 0, tzinfo=timezone.utc)
+        base = "2026-07-13T02:{:02d}:00+00:00"
+        items = [
+            {"room": "ABC", "text": "d3", "client_time": "2026-07-12", "sent_time": "09:00",
+             "received_at": base.format(0)},
+            {"room": "ABC", "text": "d1", "client_time": "2026-07-10", "sent_time": "22:10",
+             "received_at": base.format(1)},
+            {"room": "ABC", "text": "d2", "client_time": "2026-07-11", "sent_time": "",
+             "received_at": base.format(2)},
+        ]
+        out = collector_core.select_messages(items, "ABC", "7day", now)
+        self.assertEqual([r["text"] for r in out], ["d1", "d2", "d3"])
+
+    def test_since_window_uses_sent_date_not_received(self):
+        # 오늘 백필된 '8일 전 발신' 메시지는 7day 창에 안 들어와야 한다.
+        now = datetime(2026, 7, 13, 3, 0, tzinfo=timezone.utc)
+        items = [
+            {"room": "ABC", "text": "too-old", "client_time": "2026-07-04", "sent_time": "12:00",
+             "received_at": "2026-07-13T02:00:00+00:00"},
+            {"room": "ABC", "text": "in-window", "client_time": "2026-07-10", "sent_time": "12:00",
+             "received_at": "2026-07-13T02:00:00+00:00"},
+        ]
+        out = collector_core.select_messages(items, "ABC", "7day", now)
+        self.assertEqual([r["text"] for r in out], ["in-window"])
+
 
 if __name__ == "__main__":
     unittest.main()

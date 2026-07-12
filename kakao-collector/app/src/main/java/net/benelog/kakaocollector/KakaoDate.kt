@@ -14,6 +14,13 @@ object KakaoDate {
         return "%04d-%02d-%02d".format(y.toInt(), mo.toInt(), d.toInt())
     }
 
+    /** epoch millis → 기기 시간대 기준 ISO 날짜(YYYY-MM-DD). 백필 기간 지정에 사용. */
+    fun isoOf(millis: Long): String =
+        java.time.Instant.ofEpochMilli(millis)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate()
+            .toString()
+
     /** 두 ISO 날짜(YYYY-MM-DD)가 정확히 하루 차이인가. 어느 쪽이든 못 읽으면 false. */
     fun isAdjacentDay(a: String, b: String): Boolean = try {
         val days = java.time.temporal.ChronoUnit.DAYS.between(

@@ -83,6 +83,96 @@
             android:layout_marginBottom="8dp"
             android:background="?android:attr/listDivider" />
 
+        <TextView
+            style="@style/FieldLabel"
+            android:text="백필 수집 — 카카오톡 방을 열어 지정 기간을 자동 스크롤로 수집" />
+
+        <Spinner
+            android:id="@+id/spBackfillRoom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnBackfillFrom"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="시작 시점" />
+
+            <Button
+                android:id="@+id/btnBackfillTo"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="끝 시점" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnPreset1d"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="하루" />
+
+            <Button
+                android:id="@+id/btnPreset3d"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="3일" />
+
+            <Button
+                android:id="@+id/btnPreset7d"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="1주일" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnBackfillStart"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="수집 시작" />
+
+            <Button
+                android:id="@+id/btnBackfillStop"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="중지" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/backfillStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:textSize="14sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:background="?android:attr/listDivider" />
+
         <Button
             android:id="@+id/btnAdvanced"
             android:layout_width="match_parent"

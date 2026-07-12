@@ -44,18 +44,30 @@ object Uploader {
         if (::store.isInitialized) store.recentKeys(limit) else emptySet()
 
     /**
-     * 수집 메시지 제출: DB 기록/병합 → 새 행이거나 잘림→완전 갱신이면 POST(완전한 본문) → 성공 시 sent_ok.
+     * 수집 메시지 제출: DB 기록/병합 → 새 행이거나 누락 필드(본문/날짜/시각) 갱신이면 POST → 성공 시 sent_ok.
      * 잘린 본문이 이미 더 완전한 행으로 있으면(SKIPPED) 아무것도 안 한다. 갱신 시에도 완전한 본문을 보내
      * 서버가 같은 레코드를 제자리(received_at 유지=순서 보존)에서 합치게 한다.
      * [fromScroll]은 스크롤 settle 수집 여부 — [MessageStore.recordOrMerge]의 날짜 경계 가드용.
+     * [sentTime]은 화면에서 읽은 발신 시각(HH:MM, 미상이면 ""). [onOutcome]은 백필 진행 집계용(선택).
      */
-    fun submit(room: String, sender: String, text: String, ts: String, fromScroll: Boolean = false) {
+    fun submit(
+        room: String,
+        sender: String,
+        text: String,
+        ts: String,
+        sentTime: String = "",
+        fromScroll: Boolean = false,
+        onOutcome: ((MessageStore.Outcome) -> Unit)? = null,
+    ) {
         exec.execute {
             try {
-                val r = store.recordOrMerge(room, sender, text, ts, System.currentTimeMillis(), fromScroll)
+                val r = store.recordOrMerge(room, sender, text, ts, sentTime, System.currentTimeMillis(), fromScroll)
+                onOutcome?.invoke(r.outcome)
                 if (r.outcome == MessageStore.Outcome.SKIPPED) return@execute
+                // 병합 후 DB에 남은 값(r.*)을 보낸다 — 서버 저장소가 폰 DB와 같은 상태로 수렴.
                 val ok = Poster.post(
-                    JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ts),
+                    JSONObject().put("room", room).put("sender", sender).put("text", r.text)
+                        .put("ts", r.clientTime).put("sent_time", r.sentTime),
                 )
                 if (ok) {
                     store.markSent(r.rowId)
@@ -90,7 +102,7 @@ object Uploader {
         for (row in rows) {
             val ok = Poster.post(
                 JSONObject().put("room", row.room).put("sender", row.sender)
-                    .put("text", row.text).put("ts", row.clientTime),
+                    .put("text", row.text).put("ts", row.clientTime).put("sent_time", row.sentTime),
             )
             if (!ok) break
             store.markSent(row.id)

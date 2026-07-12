@@ -69,15 +69,56 @@ def _ct_compatible(a: str, b: str) -> bool:
     return a == b or not a or not b
 
 
+_SENT_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def normalize_sent_time(value) -> str:
+    """Validate a device-scraped send time ('HH:MM', 24h, KST). Anything else → ''."""
+    s = str(value or "").strip()
+    return s if _SENT_TIME_RE.fullmatch(s) else ""
+
+
+def earliest_time(a: str, b: str) -> str:
+    """Earlier of two 'HH:MM' times (blank-tolerant). Mis-attributed times only ever
+    skew LATE (the collector picks the next group's label below when a message's own
+    label is missing), so on conflict the earlier observation is closer to the truth."""
+    if not a:
+        return b
+    if not b:
+        return a
+    return min(a, b)
+
+
+def _merge_fields(rec: dict, new_rec: dict, text: str | None = None) -> dict | None:
+    """Merged copy of `rec` with missing date/time filled from `new_rec` (and an
+    optionally fuller `text`). Returns None if nothing would change (caller skips)."""
+    ect = rec.get("client_time") or ""
+    est = normalize_sent_time(rec.get("sent_time"))
+    merged_ct = ect or (new_rec.get("client_time") or "")
+    merged_st = earliest_time(est, normalize_sent_time(new_rec.get("sent_time")))
+    etext = rec.get("text") or ""
+    merged_text = text if text is not None else etext
+    if merged_ct == ect and merged_st == est and merged_text == etext:
+        return None
+    merged = dict(rec)
+    merged["text"] = merged_text
+    merged["client_time"] = merged_ct
+    merged["sent_time"] = merged_st
+    return merged
+
+
 def plan_ingest(items_with_keys, new_rec: dict, new_key: str) -> dict:
     """Decide how to store an incoming record against what is already stored,
-    so each message is kept once, at its earliest position, with its fullest text.
+    so each message is kept once, at its earliest position, with its fullest text
+    and its most complete send date/time.
 
     `items_with_keys` is an iterable of (key, record) pairs. Returns one of:
       {"action": "store",  "key": new_key}                 — brand new message
-      {"action": "skip",   "key": existing_key}            — exact dup, or incoming is a truncated copy
-      {"action": "update", "key": existing_key, "rec": …}  — incoming extends a shorter stored copy;
-                                                              caller writes `rec` under existing_key,
+      {"action": "skip",   "key": existing_key}            — an equal-or-fuller copy exists
+      {"action": "update", "key": existing_key, "rec": …}  — fill the stored copy in place
+                                                              (fuller text and/or missing
+                                                              client_time/sent_time); caller
+                                                              writes `rec` under existing_key,
                                                               preserving its received_at (= order)
     """
     room = new_rec.get("room")
@@ -89,24 +130,24 @@ def plan_ingest(items_with_keys, new_rec: dict, new_key: str) -> dict:
         etext = rec.get("text") or ""
         ect = rec.get("client_time") or ""
         if etext == ntext:
-            if ect == nct:
-                return {"action": "skip", "key": key}  # exact same message already stored
             if _ct_compatible(ect, nct):
-                # Same text, one side has no date yet (the empty→date transition): same
-                # message. Upgrade a stored dateless row to the dated version in place
-                # (keeps received_at) instead of creating a second copy.
-                if not ect and nct:
-                    return {"action": "update", "key": key, "rec": {**rec, "client_time": nct}}
-                return {"action": "skip", "key": key}  # stored already dated (or both blank)
+                # Same message. Upgrade missing fields in place (keeps received_at):
+                # blank date → date, blank/late send time → earliest observed time.
+                merged = _merge_fields(rec, new_rec)
+                if merged is not None:
+                    return {"action": "update", "key": key, "rec": merged}
+                return {"action": "skip", "key": key}
             continue  # same text but different known days → not this row; keep scanning
         if _ct_compatible(ect, nct):
             if extends(etext, ntext):  # stored copy is shorter → fill it in, keep its slot
-                merged = dict(rec)
-                merged["text"] = ntext
+                merged = _merge_fields(rec, new_rec, text=ntext) or dict(rec)
                 if not (merged.get("sender") or "").strip():
                     merged["sender"] = new_rec.get("sender", "")
                 return {"action": "update", "key": key, "rec": merged}
-            if extends(ntext, etext):  # incoming is the truncated one → drop it
+            if extends(ntext, etext):  # incoming is the truncated one → drop its text,
+                merged = _merge_fields(rec, new_rec)  # but keep any date/time it carries
+                if merged is not None:
+                    return {"action": "update", "key": key, "rec": merged}
                 return {"action": "skip", "key": key}
     return {"action": "store", "key": new_key}
 
@@ -200,6 +241,8 @@ def normalize_item(payload: dict, received_at: datetime) -> dict:
     """Validate/normalize an ingest payload into a stored record.
 
     Raises ValueError if required fields (room, text) are missing/blank.
+    `sent_time` is the send time the device read off the screen ('HH:MM', KST),
+    blank when the KakaoTalk build doesn't expose it to accessibility.
     """
     room = (payload.get("room") or "").strip()
     text = clean_text(payload.get("text"))
@@ -212,6 +255,7 @@ def normalize_item(payload: dict, received_at: datetime) -> dict:
         "sender": (payload.get("sender") or "").strip(),
         "text": text,
         "client_time": (payload.get("client_time") or payload.get("ts") or "").strip(),
+        "sent_time": normalize_sent_time(payload.get("sent_time")),
         "received_at": received_at.astimezone(timezone.utc).isoformat(),
     }
 
@@ -223,20 +267,50 @@ def _parse_received_at(value: str) -> datetime:
         return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
+KST = timezone(timedelta(hours=9))
+
+_CLIENT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def effective_sent_at(rec: dict) -> datetime:
+    """Best-known send moment of a record, tz-aware, for ordering and windowing.
+
+    Priority: client_time date + sent_time (both scraped off the screen, KST) →
+    client_time date + received time-of-day (day-accurate; within a backfilled day
+    the receive order IS the conversation order, so the receive clock preserves it) →
+    received_at (legacy rows with no scraped date at all).
+    """
+    received = _parse_received_at(rec.get("received_at", ""))
+    date = (rec.get("client_time") or "").strip()
+    if not _CLIENT_DATE_RE.fullmatch(date):
+        return received
+    year, month, day = int(date[:4]), int(date[5:7]), int(date[8:10])
+    st = normalize_sent_time(rec.get("sent_time"))
+    try:
+        if st:
+            return datetime(year, month, day, int(st[:2]), int(st[3:]), tzinfo=KST)
+        rk = received.astimezone(KST)
+        return datetime(year, month, day, rk.hour, rk.minute, rk.second, rk.microsecond, tzinfo=KST)
+    except ValueError:  # e.g. an impossible scraped date like 2026-02-30
+        return received
+
+
 def select_messages(items, room, since, now: datetime) -> list[dict]:
     """Return stored records within the `since` window, oldest first.
 
-    `items` is an iterable of stored record dicts. Filters by server
-    `received_at` (reliable absolute time), optionally by `room`.
+    `items` is an iterable of stored record dicts, optionally filtered by `room`.
+    Windowing and ordering use `effective_sent_at` — the scraped send date/time when
+    known (so a backfilled week reads in true conversation order and a '3일' summary
+    means 3 days of *sent* messages), falling back to server `received_at`.
     """
     cutoff = now.astimezone(timezone.utc) - parse_since_to_timedelta(since)
     selected = []
     for rec in items:
         if room and rec.get("room") != room:
             continue
-        if _parse_received_at(rec.get("received_at", "")) >= cutoff:
+        if effective_sent_at(rec) >= cutoff:
             selected.append(rec)
-    selected.sort(key=lambda r: r.get("received_at", ""))
+    selected.sort(key=lambda r: (effective_sent_at(r), r.get("received_at", "")))
     return selected
 
 

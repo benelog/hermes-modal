@@ -376,19 +376,30 @@ def _build_summary_prompt(room: str, since: str, messages: list) -> str:
         except (ValueError, TypeError):
             return ""
 
+    def sent_label(rec: dict) -> str:
+        """발신 시각 라벨: 화면에서 수집한 발신 날짜(+시각)를 우선, 없으면 수집시각(~표시)."""
+        date = (rec.get("client_time") or "").strip()
+        if len(date) == 10 and date[4] == "-" and date[7] == "-":
+            mmdd = f"{date[5:7]}/{date[8:10]}"
+            st = (rec.get("sent_time") or "").strip()
+            return f"{mmdd} {st}" if st else mmdd
+        received = kst_label(rec.get("received_at", ""))
+        return f"~{received}" if received else ""
+
     lines = []
     for rec in messages:
         sender = (rec.get("sender") or "?").strip()
         text = (rec.get("text") or "").strip()
-        tlabel = kst_label(rec.get("received_at", ""))
+        tlabel = sent_label(rec)
         prefix = f"[{tlabel}] " if tlabel else ""
         lines.append(f"{prefix}{sender}: {text}")
     body = "\n".join(lines)
     return (
         f"너는 카카오톡 그룹 채팅방 '{room}'의 최근 대화를 요약하는 도우미야. "
-        f"아래는 최근 {since} 동안 수집된 메시지야(형식: [수집시각 KST(MM/DD HH:MM)] 보낸이: 내용). "
-        "메시지는 수집 시각 순으로 정렬돼 있어. 이 시각은 '수집된 대략 시각'이라, 방을 실시간으로 보고 "
-        "있었다면 실제 발신 시각과 거의 같지만, 오래된 메시지를 나중에 한꺼번에 스크롤해 모았다면 어긋날 수 있어.\n\n"
+        f"아래는 최근 {since} 동안의 메시지야(형식: [발신시각 KST] 보낸이: 내용). "
+        "발신시각은 MM/DD(날짜만 확인됨) 또는 MM/DD HH:MM(분까지 확인됨) 형식이고, "
+        "'~'로 시작하면 발신시각을 몰라 '수집된 시각'으로 대신 적은 것이라 실제 발신은 그보다 이전일 수 있어. "
+        "메시지는 발신시각 순으로 정렬돼 있어.\n\n"
         f"{body}\n\n"
         "이 대화를 한국어로 요약해줘. 요약문은 그대로 카카오톡 그룹 방에 전송될 거야. 규칙:\n"
         "- 마크다운 헤더(#)나 굵게(**) 같은 서식 없이 평문으로.\n"
