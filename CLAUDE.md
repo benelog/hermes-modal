@@ -5,7 +5,7 @@ Zero-cost personal bot stack on Modal: Hermes Telegram gateway + qmd knowledge s
 ## Commands
 - Server tests: `python3 -m unittest discover -s tests` (no pytest)
 - Android: `cd kakao-collector && ./install.sh assembleDebug|testDebugUnitTest|installDebug` (script handles JDK17/SDK)
-- Deploy: `modal deploy modal_app.py` — PRODUCTION bot, confirm with user first (hook enforces). `modal` CLI is on PATH (pipx); for `import modal` scripting use the venv python: `"$(pipx environment --value PIPX_LOCAL_VENVS)/modal/bin/python"`
+- Deploy: `./deploy.sh` (server tests → interactive confirm → `modal deploy modal_app.py`) — PRODUCTION bot, confirm with user first (hook enforces; the script's prompt also blocks non-interactive runs unless `-y`). `modal` CLI is on PATH (pipx); for `import modal` scripting use the venv python: `"$(pipx environment --value PIPX_LOCAL_VENVS)/modal/bin/python"`
 - adb (may not be on PATH): `ADB=$(command -v adb || echo "${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}/platform-tools/adb")`
 
 ## Rules
