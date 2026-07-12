@@ -3,6 +3,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11+ 패키지 가시성: 백필 시작 시 카카오톡을 앞으로 띄우는
+         getLaunchIntentForPackage(com.kakao.talk)가 이 선언 없이는 null을 돌려준다. -->
+    <queries>
+        <package android:name="com.kakao.talk" />
+    </queries>
+
     <application
         android:name=".CollectorApp"
         android:allowBackup="false"
