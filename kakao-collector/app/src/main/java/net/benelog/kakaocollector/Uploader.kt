@@ -143,7 +143,7 @@ object Uploader {
             try {
                 flushPending(force = true)
                 val local = store.distinctCountsByDate(room, start, end)
-                val unsent = store.unsentCount(room)
+                val unsent = store.unsentCountInRange(room, start, end, System.currentTimeMillis())
                 val url = Settings.statsUrl +
                     "?token=" + java.net.URLEncoder.encode(Settings.token, "UTF-8") +
                     "&room=" + java.net.URLEncoder.encode(room, "UTF-8") +

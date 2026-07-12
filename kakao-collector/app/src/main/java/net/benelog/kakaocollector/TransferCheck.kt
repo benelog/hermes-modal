@@ -42,7 +42,7 @@ object TransferCheck {
         val detail = buildString {
             append(summary)
             for (line in missingLines) append('\n').append(line)
-            if (unsent > 0) append('\n').append("미전송(sent_ok=0) ${unsent}건 — 네트워크 복구 후 자동 재전송됩니다")
+            if (unsent > 0) append('\n').append("이번 범위 미전송(sent_ok=0) ${unsent}건 — 네트워크 복구 후 자동 재전송됩니다")
             if (!ok) append('\n').append("잠시 후 같은 기간으로 백필을 다시 실행하면 재전송·재검증됩니다")
         }
         return Report(ok, summary, detail)

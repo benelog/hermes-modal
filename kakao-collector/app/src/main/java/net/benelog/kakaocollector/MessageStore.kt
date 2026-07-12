@@ -235,10 +235,19 @@ class MessageStore(context: Context) :
         return out
     }
 
-    /** 이 방의 미전송(sent_ok=0) 행 수 — 전송 검증에서 '아직 안 간 것'의 직접 증거. */
-    fun unsentCount(room: String): Int {
+    /**
+     * '이번 검증 범위와 관련된' 미전송(sent_ok=0) 행 수 — 아직 서버에 안 간 것의 직접 증거.
+     * 발신일이 범위 안이거나, 날짜 미상이면 최근 48시간(재전송 창) 안에 수집된 행만 센다 —
+     * 그보다 오래된 미전송(legacy, 재전송 창 밖이라 영구 보류)은 이번 범위의 전송 상태와
+     * 무관한데 방 전체를 세면 검증이 매번 헛경보를 낸다(2026-07-13 실측: 172건).
+     */
+    fun unsentCountInRange(room: String, start: String, end: String, nowMillis: Long): Int {
+        val recentCutoff = nowMillis - 48L * 60 * 60 * 1000
         readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM messages WHERE room=? AND sent_ok=0", arrayOf(room),
+            "SELECT COUNT(*) FROM messages WHERE room=? AND sent_ok=0 AND " +
+                "((client_time<>'' AND client_time>=? AND client_time<=?) OR " +
+                "(client_time='' AND collected_at>=?))",
+            arrayOf(room, start, end, recentCutoff.toString()),
         ).use { c ->
             return if (c.moveToFirst()) c.getInt(0) else 0
         }
