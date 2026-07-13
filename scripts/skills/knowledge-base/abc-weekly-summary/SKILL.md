@@ -14,7 +14,7 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
 - Target room: `ABC(아카라카북클럽)`.
 - Default reporting window for the Monday 07:00 recurring job: previous Monday 00:00 through previous Sunday 23:59:59 in Asia/Seoul.
 - For ad hoc requests, resolve relative dates with `TZ=Asia/Seoul date` first.
-- Filter the requested explicit date range by the original KakaoTalk send date, not the Modal server receive/collection date. Prefer `sent_time[:10]` when `sent_time` contains an ISO date/datetime; otherwise fall back to `client_time[:10]` because older collector records store the KakaoTalk-displayed send date there. Never use `received_at` for weekly date filtering. Do not rely only on `--since`, because the collector's `--since` is based on collection time.
+- Use `client_time[:10]` to filter the requested explicit date range. Do not rely only on `--since`, because the collector's `--since` is based on collection time.
 
 ## Procedure
 
@@ -29,7 +29,7 @@ Use when the user asks for a weekly summary of the KakaoTalk ABC / ABC(아카라
    ```
 4. Parse JSON and filter messages where:
    - `room == "ABC(아카라카북클럽)"`
-   - `start_date <= sent_date <= end_date`, where `sent_date` is the original KakaoTalk send date: prefer `sent_time[:10]` when `sent_time` contains an ISO date/datetime, otherwise fall back to `client_time[:10]` for older records. Do **not** filter by `received_at`, which is the Modal server collection timestamp.
+   - `start_date <= client_time[:10] <= end_date`
 5. Run the enrichment helper before writing the summary whenever available:
    ```bash
    python /root/.hermes/scripts/abc_book_enrichment.py --since 9day --start YYYY-MM-DD --end YYYY-MM-DD

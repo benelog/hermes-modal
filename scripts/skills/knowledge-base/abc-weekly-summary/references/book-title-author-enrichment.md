@@ -40,7 +40,7 @@ python /root/.hermes/scripts/abc_book_enrichment.py --input-json /tmp/kakao_abc_
 
 The script emits JSON with:
 
-- filtered ABC message count (using original KakaoTalk send date: `sent_time` date when available, otherwise legacy `client_time` date; never `received_at`),
+- filtered ABC message count,
 - deduplicated URLs and parsed page/book metadata,
 - book candidate lines,
 - message title/author clues,
