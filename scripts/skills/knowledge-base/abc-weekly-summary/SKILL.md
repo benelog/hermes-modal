@@ -111,6 +111,7 @@ Additional output rules for this shape:
 - `references/2026-07-abc-weekly-cron-setup.md` records the initial weekly cron setup pattern, including the KST-to-UTC schedule conversion, self-contained cron prompt checklist, and Git-tracked cron JSON verification steps.
 - `references/book-title-author-enrichment.md` records the required message-clue → URL parsing → internet/bookstore search → available-image OCR sequence and the `abc_book_enrichment.py` helper contract.
 - `references/manual-test-run.md` records the reliable manual test-run pattern: trigger the cron job, run a scheduler tick, then verify saved output and delivery logs.
+- `references/cron-prompt-deduplication.md` records the rule for keeping `cron_jobs/abc-weekly-summary.json` as a thin invocation wrapper instead of duplicating this skill's detailed procedure/output rules.
 
 ## Pitfalls
 
