@@ -568,6 +568,17 @@ class KakaoCollectorService : AccessibilityService() {
         return false
     }
 
+    // 제스처가 실제로 수행됐는지(완료/취소) 확인용 — 실기기에서 스크롤 무반응 진단의 핵심 로그.
+    private val gestureResultLogger = object : GestureResultCallback() {
+        override fun onCompleted(gestureDescription: GestureDescription?) {
+            Log.i(TAG, "backfill swipe: completed")
+        }
+
+        override fun onCancelled(gestureDescription: GestureDescription?) {
+            Log.w(TAG, "backfill swipe: CANCELLED (시스템/터치 간섭 — 노드 스크롤 폴백 대상)")
+        }
+    }
+
     /**
      * 세로 드래그 제스처. downward=true 면 손가락을 아래로(=과거 메시지 보기),
      * false 면 위로(=최신 방향). 화면 중앙 세로 구간(상단 툴바·하단 입력창 회피)만 쓴다.
@@ -590,11 +601,54 @@ class KakaoCollectorService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         return try {
-            dispatchGesture(gesture, null, null)
+            dispatchGesture(gesture, gestureResultLogger, null)
         } catch (e: Exception) {
             Log.w(TAG, "dispatchGesture failed: ${e.message}")
             false
         }
+    }
+
+    /**
+     * 제스처 폴백: 채팅 리스트(가장 큰 스크롤 가능 노드)에 접근성 스크롤 액션을 직접 보낸다.
+     * 합성 터치가 아니라 RecyclerView에 명령하는 방식이라 확실히 움직이는 대신, 걸음 크기가
+     * '한 페이지'로 고정된다(겹침이 얇아 settle 프레임이 경계 메시지를 한 번만 본다 — 수집엔 충분).
+     * 2026-07-13 실측: dispatchGesture가 true를 반환해도 카톡 리스트가 움직이지 않는 기기가 있어
+     * [BackfillController]가 진행 없음을 감지하면 이 방식으로 자동 전환한다.
+     */
+    fun performNodeScroll(older: Boolean): Boolean {
+        val node = findScrollableChatNode() ?: return false
+        val action = if (older) {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+        return try {
+            node.performAction(action)
+        } catch (e: Exception) {
+            Log.w(TAG, "node scroll failed: ${e.message}")
+            false
+        }
+    }
+
+    /** 카톡 윈도우에서 화면을 가장 넓게 덮는 스크롤 가능 노드(=채팅 리스트)를 찾는다. */
+    private fun findScrollableChatNode(): AccessibilityNodeInfo? {
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = 0L
+        val rect = android.graphics.Rect()
+        for (root in collectRoots()) {
+            if (root.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+            walk(root) { n ->
+                if (n.isScrollable) {
+                    n.getBoundsInScreen(rect)
+                    val area = rect.width().toLong() * rect.height()
+                    if (area > bestArea) {
+                        bestArea = area
+                        best = n
+                    }
+                }
+            }
+        }
+        return best
     }
 
     /** 백필 워치독용: settle 이벤트가 안 올 때 수동으로 한 프레임 수집을 돌린다. */

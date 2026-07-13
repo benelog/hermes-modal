@@ -83,6 +83,10 @@ object BackfillController {
     private var startedAt = 0L
     private var inRoom = false
 
+    // 제스처 드래그가 무반응인 기기(2026-07-13 실측: dispatchGesture true인데 리스트 정지)에서는
+    // 노드 스크롤 액션으로 자동 전환한다. 한 번 전환하면 세션이 끝날 때까지 유지.
+    private var useNodeScroll = false
+
     fun statusNow(): Status = status
 
     fun isRunning(): Boolean =
@@ -106,7 +110,7 @@ object BackfillController {
         phase = Phase.NAVIGATE
         steps = 0; inserted = 0; updated = 0
         lastSignature = ""; noProgress = 0; awaitingFrame = false; peekMinDate = ""
-        inRoom = false
+        inRoom = false; useNodeScroll = false
         startedAt = System.currentTimeMillis()
         Log.i(TAG, "backfill start room=${req.room} from=$fromDate to=$toDate")
         publish("'${req.room}' 방을 여는 중…")
@@ -165,12 +169,16 @@ object BackfillController {
         awaitingFrame = false
         steps++
         val minDate = BackfillPlanner.minDate(frame.minDate, peekMinDate)
-        if (frame.signature == lastSignature) noProgress++ else { noProgress = 0; lastSignature = frame.signature }
+        val stuck = if (frame.signature == lastSignature) {
+            noteNoProgress()
+        } else {
+            noProgress = 0; lastSignature = frame.signature; false
+        }
 
         if (phase == Phase.SEEK) {
             when {
                 BackfillPlanner.seekDone(minDate, fromDate) -> beginCollect("$fromDate 이전 날짜 도달")
-                noProgress >= NO_PROGRESS_LIMIT -> beginCollect("대화 처음에 도달")
+                stuck -> beginCollect("대화 처음에 도달")
                 steps >= MAX_SEEK_STEPS -> beginCollect("탐색 걸음 상한 도달")
                 else -> {
                     publish("과거로 이동 중… ${steps}걸음 · 화면 날짜 ${minDate.ifEmpty { "?" }}")
@@ -180,7 +188,7 @@ object BackfillController {
         } else {
             when {
                 BackfillPlanner.collectDone(minDate, toDate) -> finish(Phase.DONE, "$toDate 이후 날짜 도달 — 수집 완료")
-                noProgress >= NO_PROGRESS_LIMIT -> finish(Phase.DONE, "맨 아래 도달 — 수집 완료")
+                stuck -> finish(Phase.DONE, "맨 아래 도달 — 수집 완료")
                 steps >= MAX_COLLECT_STEPS -> finish(Phase.DONE, "수집 걸음 상한 도달")
                 else -> {
                     publish("수집 중… ${steps}걸음 · 신규 $inserted · 갱신 $updated")
@@ -188,6 +196,24 @@ object BackfillController {
                 }
             }
         }
+    }
+
+    /**
+     * 진행 없음 1회 기록. 한계에 걸렸을 때 아직 제스처 모드라면 노드 스크롤 액션으로 전환하고
+     * 카운터를 리셋해 다시 시도한다(제스처 무반응 기기 대응) — 전환 후에도 멈춰 있어야 진짜
+     * 끝(대화 처음/맨 아래)으로 판정한다. true = 한계 도달(단계 종료).
+     */
+    private fun noteNoProgress(): Boolean {
+        noProgress++
+        if (noProgress < NO_PROGRESS_LIMIT) return false
+        if (!useNodeScroll) {
+            useNodeScroll = true
+            noProgress = 0
+            Log.i(TAG, "backfill: 제스처 스크롤 무반응 → 노드 스크롤 액션으로 전환")
+            publish("제스처 스크롤 무반응 — 노드 스크롤로 전환해 계속 진행")
+            return false
+        }
+        return true
     }
 
     /** Uploader 스레드에서 저장 결과 통지(COLLECT 집계용). */
@@ -261,15 +287,19 @@ object BackfillController {
         peekMinDate = ""
         awaitingFrame = true
         val seq = ++swipeSeq
-        val down = phase == Phase.SEEK // 손가락 아래로 드래그 = 과거(위) 내용 보기
-        val ratio = if (down) SEEK_SWIPE_RATIO else COLLECT_SWIPE_RATIO
-        val durMs = if (down) SEEK_SWIPE_MS else COLLECT_SWIPE_MS
-        if (!svc.performSwipe(downward = down, distanceRatio = ratio, durationMs = durMs)) {
-            noProgress++
-            if (noProgress >= NO_PROGRESS_LIMIT) {
-                if (phase == Phase.SEEK) beginCollect("제스처 실패 반복") else finish(Phase.DONE, "제스처 실패 반복 — 여기까지 수집")
+        val older = phase == Phase.SEEK // 과거(위) 방향 = 손가락 아래로 드래그 / SCROLL_BACKWARD
+        val durMs = if (older) SEEK_SWIPE_MS else COLLECT_SWIPE_MS
+        val moved = if (useNodeScroll) {
+            svc.performNodeScroll(older = older)
+        } else {
+            val ratio = if (older) SEEK_SWIPE_RATIO else COLLECT_SWIPE_RATIO
+            svc.performSwipe(downward = older, distanceRatio = ratio, durationMs = durMs)
+        }
+        if (!moved) {
+            awaitingFrame = false
+            if (noteNoProgress()) {
+                if (phase == Phase.SEEK) beginCollect("스크롤 실패 반복") else finish(Phase.DONE, "스크롤 실패 반복 — 여기까지 수집")
             } else {
-                awaitingFrame = false
                 scheduleSwipe(g, pace())
             }
             return
@@ -288,8 +318,7 @@ object BackfillController {
             return
         }
         awaitingFrame = false
-        noProgress++
-        if (noProgress >= NO_PROGRESS_LIMIT) {
+        if (noteNoProgress()) {
             if (phase == Phase.SEEK) beginCollect("프레임 없음 반복") else finish(Phase.DONE, "프레임 없음 반복 — 여기까지 수집")
         } else {
             scheduleSwipe(g, pace())
