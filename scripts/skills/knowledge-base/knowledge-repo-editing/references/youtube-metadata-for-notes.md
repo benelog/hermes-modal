@@ -45,7 +45,7 @@ curl -L --silent --max-time 90 \
   | grep -i -A2 -B2 -E 'Description|Chapters|①|②|③|④|plugin|MCP|Report|Hook|Speakers|Presented|prod|vibe'
 ```
 
-4. If the double-reader URL exposes only partial metadata, try the single-reader variants too. For some YouTube pages they surface the same description block plus comments/recommendations in a different order, which can help confirm title, event, date, speaker, and community reaction without a transcript:
+4. If the double-reader URL exposes only partial metadata, try the single-reader variants too. For some YouTube pages they surface the same description block plus comments/recommendations in a different order, which can help confirm title, event, date, speaker, and community reaction without a transcript. In one wiki edit (`ZEk_eMZ6Sjo`), the double-reader URL produced only a bot-check/player shell, while the single HTTPS reader exposed the full `## Description` block including the official 강연 소개; inspect around `## Description`, not just the first 200 lines.
 
 ```bash
 for u in \
@@ -54,7 +54,7 @@ for u in \
   'https://r.jina.ai/http://https://m.youtube.com/watch?v=VIDEO_ID'; do
   echo "--- $u"
   curl -L -sS --max-time 60 "$u" \
-    | grep -i -A3 -B3 -E 'Description|Chapters|Speakers|Presented|Claude Code|production|prod|vibe'
+    | grep -i -A8 -B4 -E '## Description|강연 소개|Description|Chapters|Speakers|Presented|Claude Code|production|prod|vibe'
 done
 ```
 
