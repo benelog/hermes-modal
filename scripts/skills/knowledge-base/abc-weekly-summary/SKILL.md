@@ -71,7 +71,7 @@ ABC 대화방 주간 요약
 ### 《책 제목》 - 저자
 
 - 맥락 요약.
-- 구매 링크: https://m.yes24.com/...
+- 구매 링크: https://product.kyobobook.co.kr/detail/...
 
 ### 제목 미확인 책/이미지 공유 - 저자 미확인
 
@@ -102,7 +102,7 @@ Additional output rules for this shape:
 
 - Do not include separate `핵심 화제 요약`, `결정·일정·약속`, or `한 줄 분위기` sections. The purpose is to keep the report centered on books and shared URLs.
 - Use heading levels rather than indentation because Band copy/paste does not preserve indentation clearly.
-- For every identified book, include `구매 링크:`. If the purchase link was not shared in the Kakao room, search the internet and fill it with a YES24 URL whenever a confident YES24 product page is found. Prefer mobile YES24 URLs (`https://m.yes24.com/goods/detail/...`) when available.
+- For every identified book, include `구매 링크:`. Use **Kyobo Book Centre / 교보문고** links for purchase links by default, even when the Kakao room shared a YES24 or Aladin URL. If the purchase link was not shared in the Kakao room, search the internet and fill it with a Kyobo product URL whenever a confident product page is found. Prefer Kyobo product detail URLs (`https://product.kyobobook.co.kr/detail/...`) when available; use a Kyobo search URL only when a product page cannot be confidently identified.
 - If a book's URL is already used as `구매 링크` in `## 공유·추천된 책`, remove that URL from `## 공유된 URL 모음` entirely. Put all relevant conversation context for that book into the book's `맥락` bullets to avoid duplication.
 - `## 공유된 URL 모음` should contain only non-book URLs or book-related URLs that could not be confidently attached to a specific book entry.
 
