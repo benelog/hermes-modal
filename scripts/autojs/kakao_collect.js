@@ -13,6 +13,7 @@ const CONFIG = {
     ROOM_NAME: "아카라카북클럽",          // 카톡 채팅방 상단에 보이는 정확한 표시명
     INGEST_URL: "https://benelog--kakao-ingest.modal.run", // 배포된 ingest URL
     TOKEN: "<KAKAO_COLLECTOR_TOKEN>",     // 시크릿과 동일한 토큰
+    OWN_NAME: "정상혁",                    // 오른쪽 정렬(내 말풍선)인데 이름 노드가 없을 때 사용할 내 카톡 표시명
     MAX_SCROLLS: 40,                      // 위로 스크롤 최대 횟수(기간 안전장치)
     SCROLL_PAUSE_MS: 700,
     // calibrate()로 확인해 채울 선택자 (카톡 버전에 따라 다름)
@@ -63,6 +64,19 @@ function postMessage(rec) {
     }
 }
 
+function isOwnBubble(node) {
+    // 보낸이 이름이 없는 오른쪽 말풍선(내 메시지)을 직전 보낸이로 오인하지 않기 위한 휴리스틱.
+    // 긴 왼쪽 말풍선이 오른쪽 끝까지 닿을 수 있으므로 "오른쪽 여백 < 왼쪽 여백"만 보지 않고,
+    // 말풍선 왼쪽 경계가 화면의 충분히 오른쪽에서 시작하는지도 함께 확인한다.
+    if (!node || !node.bounds) return false;
+    const b = node.bounds();
+    const w = device.width || 0;
+    if (!w || !b) return false;
+    const leftMargin = b.left;
+    const rightMargin = w - b.right;
+    return rightMargin < leftMargin && b.left > w * 0.35;
+}
+
 // 현재 화면에 보이는 메시지들을 (sender, text, time)로 수집.
 // 연속 메시지는 보낸이가 한 번만 보일 수 있어, 직전 보낸이를 승계한다.
 function scrapeVisible(seen, lastSenderRef) {
@@ -83,8 +97,9 @@ function scrapeVisible(seen, lastSenderRef) {
             const timeNode = parent.findOne(id(CONFIG.SELECTOR.TIME_ID));
             if (timeNode && timeNode.text()) ctime = timeNode.text().trim();
         }
+        if (!sender && isOwnBubble(t)) sender = CONFIG.OWN_NAME;
         if (!sender) sender = lastSenderRef.value;
-        else lastSenderRef.value = sender;
+        else if (sender !== CONFIG.OWN_NAME) lastSenderRef.value = sender;
 
         // 서버 message_key와 동일하게 \u0001 구분자로 필드 경계를 명확히 한다.
         const dedupe = sender + "\u0001" + body + "\u0001" + ctime;
