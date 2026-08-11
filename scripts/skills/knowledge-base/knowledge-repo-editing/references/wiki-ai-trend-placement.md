@@ -35,4 +35,3 @@ Session examples:
 - DongA article on tokenmaxxing and token-cost dashboards: added under `## Token 사용 경향`.
 - DigitalToday article on Claude Code cost estimate doubling from $6 to $13 per active user day: added under `## Token 사용 경향`.
 - Amazon/MeshClaw article about employees inflating internal AI token usage due to perceived performance pressure: added under `content/ai-token-cost.md` → `## Token 사용 경향`.
-- Korean articles about AI model routers, AI spend consoles, internal AI gateways, or companies building internal coding agents to reduce AI/tool-token spend belong in `content/ai-token-cost.md`, not `ai-trend.md`, because the durable angle is AI cost governance/orchestration rather than general product news. Place them under the month heading by source date descending; use one top-level bullet per article with 3–5 nested Korean bullets.
