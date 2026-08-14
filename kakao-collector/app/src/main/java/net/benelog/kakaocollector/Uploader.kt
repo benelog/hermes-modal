@@ -2,7 +2,6 @@ package net.benelog.kakaocollector
 
 import android.content.Context
 import android.util.Log
-import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
@@ -47,41 +46,31 @@ object Uploader {
      * 수집 메시지 제출: DB 기록/병합 → 새 행이거나 누락 필드(본문/날짜/시각) 갱신이면 POST → 성공 시 sent_ok.
      * 잘린 본문이 이미 더 완전한 행으로 있으면(SKIPPED) 아무것도 안 한다. 갱신 시에도 완전한 본문을 보내
      * 서버가 같은 레코드를 제자리(received_at 유지=순서 보존)에서 합치게 한다.
-     * [fromScroll]은 스크롤 settle 수집 여부 — [MessageStore.recordOrMerge]의 날짜 경계 가드용.
-     * [sentTime]은 화면에서 읽은 발신 시각(HH:MM, 미상이면 ""). [onOutcome]은 백필 진행 집계용(선택).
+     * [fromScroll]은 스크롤 settle 수집 여부 — [MergePolicy]의 날짜 경계 가드용.
+     * [onOutcome]은 백필 진행 집계용(선택).
      *
      * [repostOnSkip]=true(백필 COLLECT): 로컬에 이미 완전하게 저장된 메시지(SKIPPED)라도 서버로
      * 멱등 재전송한다 — 서버 보관(수신 후 14일)이 폰(30일)보다 짧아 "로컬엔 있는데 서버에서 정리된"
      * 레코드가 있을 수 있고, 백필이 그 구간을 다시 채우는 유일한 경로다. 서버 키/병합이 중복은 걸러준다.
      */
     fun submit(
-        room: String,
-        sender: String,
-        text: String,
-        ts: String,
-        sentTime: String = "",
+        record: MessageRecord,
         fromScroll: Boolean = false,
         repostOnSkip: Boolean = false,
         onOutcome: ((MessageStore.Outcome) -> Unit)? = null,
     ) {
         exec.execute {
             try {
-                val r = store.recordOrMerge(room, sender, text, ts, sentTime, System.currentTimeMillis(), fromScroll)
+                val r = store.recordOrMerge(record, System.currentTimeMillis(), fromScroll)
                 onOutcome?.invoke(r.outcome)
                 if (r.outcome == MessageStore.Outcome.SKIPPED) {
-                    if (repostOnSkip) {
-                        // 어느 행에 합쳐졌는지 모르므로 markSent 없이 들어온 값 그대로 재전송만 한다.
-                        Poster.post(
-                            JSONObject().put("room", room).put("sender", sender).put("text", text)
-                                .put("ts", ts).put("sent_time", sentTime),
-                        )
-                    }
+                    // 어느 행에 합쳐졌는지 모르므로 markSent 없이 들어온 값 그대로 재전송만 한다.
+                    if (repostOnSkip) ModalApi.ingest(record)
                     return@execute
                 }
                 // 병합 후 DB에 남은 값(r.*)을 보낸다 — 서버 저장소가 폰 DB와 같은 상태로 수렴.
-                val ok = Poster.post(
-                    JSONObject().put("room", room).put("sender", sender).put("text", r.text)
-                        .put("ts", r.clientTime).put("sent_time", r.sentTime),
+                val ok = ModalApi.ingest(
+                    record.copy(text = r.text, clientTime = r.clientTime, sentTime = r.sentTime),
                 )
                 if (ok) {
                     store.markSent(r.rowId)
@@ -114,11 +103,7 @@ object Uploader {
         val rows = store.unsentRows(now - FLUSH_WINDOW_MS, FLUSH_BATCH)
         var sent = 0
         for (row in rows) {
-            val ok = Poster.post(
-                JSONObject().put("room", row.room).put("sender", row.sender)
-                    .put("text", row.text).put("ts", row.clientTime).put("sent_time", row.sentTime),
-            )
-            if (!ok) break
+            if (!ModalApi.ingest(row.record)) break
             store.markSent(row.id)
             sent++
         }
@@ -127,9 +112,7 @@ object Uploader {
 
     /** 연결 테스트용: 저장하지 않고 즉시 POST(백그라운드). */
     fun testPost(room: String, sender: String, text: String) {
-        exec.execute {
-            Poster.post(JSONObject().put("room", room).put("sender", sender).put("text", text).put("ts", ""))
-        }
+        exec.execute { ModalApi.ingest(MessageRecord(room, sender, text)) }
     }
 
     /**
@@ -144,19 +127,12 @@ object Uploader {
                 flushPending(force = true)
                 val local = store.distinctCountsByDate(room, start, end)
                 val unsent = store.unsentCountInRange(room, start, end, System.currentTimeMillis())
-                val url = Settings.statsUrl +
-                    "?token=" + java.net.URLEncoder.encode(Settings.token, "UTF-8") +
-                    "&room=" + java.net.URLEncoder.encode(room, "UTF-8") +
-                    "&start=" + start + "&end=" + end
-                val json = Poster.getJson(url)
-                if (json == null || !json.optBoolean("ok")) {
+                val server = ModalApi.fetchDailyCounts(room, start, end)
+                if (server == null) {
                     val msg = "전송 검증 ✖ 서버 통계 조회 실패 — 네트워크/Stats URL 확인"
                     onResult(TransferCheck.Report(false, msg, msg))
                     return@execute
                 }
-                val counts = json.optJSONObject("counts") ?: JSONObject()
-                val server = HashMap<String, Int>()
-                for (k in counts.keys()) server[k] = counts.getInt(k)
                 onResult(TransferCheck.compare(start, end, local, server, unsent))
             } catch (e: Exception) {
                 Log.w(KakaoCollectorService.TAG, "verifyTransfer failed: ${e.message}")

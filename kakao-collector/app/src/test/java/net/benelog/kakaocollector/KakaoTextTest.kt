@@ -19,17 +19,17 @@ class KakaoTextTest {
         assertEquals("", KakaoText.clean(""))
 
     @Test fun longerContinuationExtends() =
-        assertTrue(KakaoText.extends("오픈은 10시더라고 정말로", "오픈은 10시더라고 정말로 그래서 줄섰다"))
+        assertTrue(KakaoText.isExtendedBy("오픈은 10시더라고 정말로", "오픈은 10시더라고 정말로 그래서 줄섰다"))
 
     @Test fun tooShortIsNotConfident() =
-        assertFalse(KakaoText.extends("안녕", "안녕 반가워요 오랜만입니다"))
+        assertFalse(KakaoText.isExtendedBy("안녕", "안녕 반가워요 오랜만입니다"))
 
     @Test fun stripsTrailingEllipsisBeforeCompare() =
-        assertTrue(KakaoText.extends("충분히 긴 시작 문장인데…", "충분히 긴 시작 문장인데 계속 이어집니다"))
+        assertTrue(KakaoText.isExtendedBy("충분히 긴 시작 문장인데…", "충분히 긴 시작 문장인데 계속 이어집니다"))
 
     @Test fun nonPrefixIsNotExtension() =
-        assertFalse(KakaoText.extends("완전히 다른 시작 문장", "전혀 관계 없는 다른 문장"))
+        assertFalse(KakaoText.isExtendedBy("완전히 다른 시작 문장", "전혀 관계 없는 다른 문장"))
 
     @Test fun equalIsNotExtension() =
-        assertFalse(KakaoText.extends("같은 길이의 문장입니다요", "같은 길이의 문장입니다요"))
+        assertFalse(KakaoText.isExtendedBy("같은 길이의 문장입니다요", "같은 길이의 문장입니다요"))
 }

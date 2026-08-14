@@ -22,7 +22,8 @@ object KakaoText {
      * (잘렸다 펼쳐짐, 또는 '꼬리 달기'로 편집되어 길어짐). [shorter] 의 잘림 표시는 떼고 비교하며,
      * 우연한 짧은 일치로 서로 다른 메시지를 합치지 않도록 최소 길이를 둔다.
      */
-    fun extends(shorter: String, longer: String, minLen: Int = 12): Boolean {
+    /** [shorter]가 [longer]의 잘린 앞부분(=longer가 shorter를 확장)이면 true. 짧은 본문은 오판 위험이 커서 제외. */
+    fun isExtendedBy(shorter: String, longer: String, minLen: Int = 12): Boolean {
         val s = core(shorter)
         if (s.length < minLen || longer.length <= s.length) return false
         return longer.startsWith(s)

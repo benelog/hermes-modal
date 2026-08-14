@@ -10,8 +10,9 @@ import android.database.sqlite.SQLiteOpenHelper
  *
  * 중복제거는 두 겹이다: (1) [KakaoCollectorService] 의 인메모리 seen 집합이 [DedupeKey]
  * (room,text,client_time — **sender 제외**)로 1차 차단하고, (2) 여기 [recordOrMerge] 가
- * DB 레벨에서 잘림/편집(짧은→긴) 메시지를 같은 행에 합쳐 넣는다. UNIQUE(room,sender,text,client_time)
- * 는 같은 본문 정확중복에 대한 백스톱이다. 감사/디버깅용으로 sent_ok·collected_at 도 보관.
+ * DB 레벨에서 잘림/편집(짧은→긴) 메시지를 같은 행에 합쳐 넣는다(판단 규칙은 [MergePolicy]).
+ * UNIQUE(room,sender,text,client_time)는 같은 본문 정확중복에 대한 백스톱이다.
+ * 감사/디버깅용으로 sent_ok·collected_at 도 보관.
  *
  * sent_time(HH:MM, 발신 시각)은 dedupe 키가 **아니다** — 시각 결합도 좌표 휴리스틱이라
  * 키에 넣으면 sender 때처럼 행이 갈라진다. 대신 같은 행의 누락 필드로 취급해, 재수집에서
@@ -19,14 +20,6 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 class MessageStore(context: Context) :
     SQLiteOpenHelper(context.applicationContext, "collector.db", null, 3) {
-
-    companion object {
-        // 스크롤(백필) 재수집에서 같은 본문이 '하루 인접한 다른 날짜'로 다시 들어오는 것은
-        // 날짜 경계 오부여(스티키 뱃지 지연/구분선 미포착)다 — 단, 그 재수집은 같은 스크롤
-        // 세션(수 분) 안에서 일어나므로, 기존 행이 이 시간창 안에서 수집된 경우로 제한한다.
-        // 진짜로 며칠 뒤 같은 말을 반복한 메시지까지 합쳐버리지 않기 위한 안전핀.
-        private const val CROSS_DAY_RESCRAPE_WINDOW_MS = 6L * 60 * 60 * 1000
-    }
 
     enum class Outcome { INSERTED, UPDATED, SKIPPED }
 
@@ -38,14 +31,9 @@ class MessageStore(context: Context) :
         val clientTime: String = "",
         val sentTime: String = "",
     )
-    data class UnsentRow(
-        val id: Long,
-        val room: String,
-        val sender: String,
-        val text: String,
-        val clientTime: String,
-        val sentTime: String,
-    )
+
+    /** 전송 실패로 남은 행(재전송 대상). */
+    data class UnsentRow(val id: Long, val record: MessageRecord)
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -70,107 +58,54 @@ class MessageStore(context: Context) :
         }
     }
 
-    /** 같은 날(또는 한쪽이 빈값)로 볼 수 있으면 true — 알려진 다른 날끼리는 합치지 않는다. */
-    private fun ctCompatible(a: String, b: String): Boolean = a == b || a.isEmpty() || b.isEmpty()
-
     /**
-     * 잘림/편집 병합 후 기록한다.
-     *  - 같은 방 최근 행 중 같은 본문(호환 날짜)이 있으면 그 행의 누락 필드를 제자리 승급:
-     *    빈 날짜→날짜, 빈 시각→시각(있으면 더 이른 값 유지). 바뀐 게 없으면 SKIPPED.
-     *  - 본문이 이 메시지의 '더 짧은 앞부분'인 행이 있으면 그 행을 in-place로 갱신
-     *    (원래 _id/collected_at 유지 = 대화 순서 보존) → UPDATED.
-     *  - 반대로 이 메시지가 기존 행의 잘린 앞부분이면(기존이 더 완전) 본문은 버리되
-     *    날짜/시각은 채울 수 있으면 채운다 → UPDATED / SKIPPED.
-     *  - 아니면 새 행 INSERT(정확중복이면 UNIQUE로 무시) → INSERTED / SKIPPED.
-     *
-     * [fromScroll]=true(스크롤 settle 수집)면 날짜 경계 가드가 추가로 작동한다: 같은 본문이
-     * 방금(시간창 내) '하루 인접한 다른 날짜'로 저장돼 있으면 재수집 오부여로 보고 버린다.
-     * 실시간 수집(false)엔 적용하지 않는다 — 자정 전후로 같은 말을 정말로 두 번 보낸
-     * 메시지를 지우면 안 되기 때문.
+     * 잘림/편집 병합 후 기록한다. 같은 방의 최근 행들을 [MergePolicy.decide]로 비교해
+     * 첫 매칭에 따라 in-place 갱신(UPDATED)/버림(SKIPPED)하고, 매칭이 없으면 새 행
+     * INSERT(정확중복이면 UNIQUE로 무시 → SKIPPED). [fromScroll]은 스크롤 settle 수집
+     * 여부 — [MergePolicy]의 날짜 경계 가드용.
      */
-    fun recordOrMerge(
-        room: String,
-        sender: String,
-        text: String,
-        clientTime: String,
-        sentTime: String,
-        nowMillis: Long,
-        fromScroll: Boolean = false,
-    ): Result {
+    fun recordOrMerge(record: MessageRecord, nowMillis: Long, fromScroll: Boolean = false): Result {
         val db = writableDatabase
-        var updateId = -1L
-        var updText = text
-        var updCt = clientTime
-        var updSt = sentTime
-        var skip = false
+        var decision: MergePolicy.Decision = MergePolicy.Decision.NoMatch
         db.query(
             "messages", arrayOf("_id", "text", "client_time", "sent_time", "collected_at"),
             // 스캔 범위 1000행: 백필(며칠치 한 번에)에서도 같은 메시지의 빈 날짜/시각 행을
             // 찾아 제자리 승급할 수 있게. 이 밖의 행은 UNIQUE 백스톱 + 서버 병합이 거른다.
-            "room=?", arrayOf(room), null, null, "_id DESC", "1000",
+            "room=?", arrayOf(record.room), null, null, "_id DESC", "1000",
         ).use { c ->
             while (c.moveToNext()) {
-                val id = c.getLong(0)
-                val etext = c.getString(1) ?: ""
-                val ect = c.getString(2) ?: ""
-                val est = c.getString(3) ?: ""
-                val ecollected = c.getLong(4)
-                if (etext == text) {
-                    if (ctCompatible(ect, clientTime)) {
-                        // 같은 메시지 — 누락 필드만 제자리 승급(빈 날짜→날짜, 시각은 이른 값).
-                        val mergedCt = ect.ifEmpty { clientTime }
-                        val mergedSt = KakaoTime.earliest(est, sentTime)
-                        if (mergedCt != ect || mergedSt != est) {
-                            updateId = id; updText = etext; updCt = mergedCt; updSt = mergedSt
-                        } else {
-                            skip = true
-                        }
-                        break
-                    }
-                    // 날짜 경계 가드(2026-07-05 오수집 재발 방지): 스크롤 재수집 + 방금 수집된
-                    // 같은 본문 + 하루 인접 날짜 = 같은 메시지의 날짜 오부여 사본 → 버림.
-                    if (fromScroll && nowMillis - ecollected <= CROSS_DAY_RESCRAPE_WINDOW_MS &&
-                        KakaoDate.isAdjacentDay(ect, clientTime)
-                    ) { skip = true; break }
-                    continue // 같은 본문, 다른 '아는' 날 → 다른 메시지
-                }
-                if (!ctCompatible(ect, clientTime)) continue
-                if (KakaoText.extends(etext, text)) { // 기존이 짧음 → 완전한 본문으로 채워 넣기
-                    updateId = id; updText = text
-                    updCt = ect.ifEmpty { clientTime }
-                    updSt = KakaoTime.earliest(est, sentTime)
-                    break
-                }
-                if (KakaoText.extends(text, etext)) { // 들어온 게 잘린 것 → 본문은 버리되 날짜/시각은 채움
-                    val mergedCt = ect.ifEmpty { clientTime }
-                    val mergedSt = KakaoTime.earliest(est, sentTime)
-                    if (mergedCt != ect || mergedSt != est) {
-                        updateId = id; updText = etext; updCt = mergedCt; updSt = mergedSt
-                    } else {
-                        skip = true
-                    }
-                    break
-                }
+                val existing = MergePolicy.ExistingRow(
+                    id = c.getLong(0),
+                    text = c.getString(1) ?: "",
+                    clientTime = c.getString(2) ?: "",
+                    sentTime = c.getString(3) ?: "",
+                    collectedAt = c.getLong(4),
+                )
+                decision = MergePolicy.decide(existing, record, nowMillis, fromScroll)
+                if (decision != MergePolicy.Decision.NoMatch) break
             }
         }
-        if (updateId >= 0) {
-            updateRow(updateId, updText, updCt, updSt)
-            return Result(Outcome.UPDATED, updateId, updText, updCt, updSt)
+        when (val d = decision) {
+            is MergePolicy.Decision.Update -> {
+                updateRow(d.id, d.text, d.clientTime, d.sentTime)
+                return Result(Outcome.UPDATED, d.id, d.text, d.clientTime, d.sentTime)
+            }
+            MergePolicy.Decision.Skip -> return Result(Outcome.SKIPPED, -1)
+            MergePolicy.Decision.NoMatch -> {}
         }
-        if (skip) return Result(Outcome.SKIPPED, -1)
 
         val v = ContentValues().apply {
-            put("room", room)
-            put("sender", sender)
-            put("text", text)
-            put("client_time", clientTime)
-            put("sent_time", sentTime)
+            put("room", record.room)
+            put("sender", record.sender)
+            put("text", record.text)
+            put("client_time", record.clientTime)
+            put("sent_time", record.sentTime)
             put("collected_at", nowMillis)
             put("sent_ok", 0)
         }
         val id = db.insertWithOnConflict("messages", null, v, SQLiteDatabase.CONFLICT_IGNORE)
         return if (id >= 0) {
-            Result(Outcome.INSERTED, id, text, clientTime, sentTime)
+            Result(Outcome.INSERTED, id, record.text, record.clientTime, record.sentTime)
         } else {
             Result(Outcome.SKIPPED, -1)
         }
@@ -204,8 +139,14 @@ class MessageStore(context: Context) :
             while (c.moveToNext()) {
                 out.add(
                     UnsentRow(
-                        c.getLong(0), c.getString(1), c.getString(2), c.getString(3),
-                        c.getString(4) ?: "", c.getString(5) ?: "",
+                        id = c.getLong(0),
+                        record = MessageRecord(
+                            room = c.getString(1),
+                            sender = c.getString(2),
+                            text = c.getString(3),
+                            clientTime = c.getString(4) ?: "",
+                            sentTime = c.getString(5) ?: "",
+                        ),
                     ),
                 )
             }

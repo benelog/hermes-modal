@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
             val room = Settings.firstRoom()
             findViewById<TextView>(R.id.status).text = "요약 생성 중… (Hermes 콜드스타트로 수십 초 걸릴 수 있음)"
             // 발신 경로와 분리: 결과를 방에 보내지 않고 앱에 표시만 한다(Modal/Hermes 경로 검증).
-            Summarizer.request(room, "요약") { res ->
+            ModalApi.requestSummary(room, "요약") { res ->
                 mainHandler.post {
                     findViewById<TextView>(R.id.status).text = if (res.ok && res.summary.isNotBlank()) {
                         "요약(테스트, $room · ${res.count}건):\n\n${res.summary}"
