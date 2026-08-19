@@ -112,8 +112,7 @@ Report concisely in Korean:
 - For devnote deployed URLs, `content/<slug>.md` maps to `https://devnote.benelog.net/<slug>`; verify with a quick `curl -I`/HTTP status check when first using a slug in a session.
 - For wiki repo deployed URLs, `site.yaml` may expose the host in `subtitle` (e.g. `wiki.benelog.net`); combine it with the content filename slug such as `content/ai-trend.md` → `https://wiki.benelog.net/ai-trend`.
 - For wiki `ai-trend.md` link placement conventions, including the user's preferred messenger export format and date sorting rules, see `references/wiki-ai-trend-placement.md`.
-- For wiki `ai-trend.md` and `ai-token-cost.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content-file.md>`; despite the script name, it checks any file with `##` month/section headings and dated top-level bullets.
-- When adding Korean AI-cost news to `ai-token-cost.md`, insert under the matching month heading by article date descending; if multiple same-day articles are added, place them before older articles and keep each as one top-level bullet with 3–5 nested bullets.
+- For wiki `ai-trend.md` date-order verification, use `scripts/check-ai-trend-sort.py <path-to-content/ai-trend.md>`.
 - YouTube transcripts often fail from cloud IPs with bot checks; use oEmbed and Jina Reader fallback.
 - If `git pull --rebase` refuses due to unstaged changes, commit the scoped task first, then rebase and push.
 - If a precise `patch` edit unexpectedly reports multiple matches, do not force a broad replacement. Re-read nearby lines and use a small deterministic script to insert/replace relative to a verified unique heading or marker, then inspect `git diff` carefully.
