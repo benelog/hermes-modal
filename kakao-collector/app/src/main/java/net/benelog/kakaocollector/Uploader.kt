@@ -39,6 +39,14 @@ object Uploader {
     }
 
     /** 인메모리 seen 시드용 — 최근 키. init 이후 호출. */
+    /**
+     * store만 준비한다(정리·재전송 없음). [init]은 접근성 서비스가 붙을 때만 불리므로,
+     * 서비스가 꺼진 상태에서도 화면에서 건수 비교를 돌릴 수 있게 하는 진입점이다.
+     */
+    fun ensureStore(context: Context) {
+        if (!::store.isInitialized) store = MessageStore(context.applicationContext)
+    }
+
     fun recentKeys(limit: Int): Set<String> =
         if (::store.isInitialized) store.recentKeys(limit) else emptySet()
 
@@ -121,7 +129,13 @@ object Uploader {
      * exec 는 FIFO 단일 스레드라, 백필 중 큐에 쌓인 제출이 모두 처리된 '뒤에' 실행된다 —
      * 즉 비교 시점의 로컬/서버 상태가 최종본이다. [onResult]는 백그라운드 스레드에서 불린다.
      */
+    /** 로컬(발신일별 중복제거 건수) vs 서버(kakao-stats) 대조. [ensureStore] 또는 [init] 이후 호출. */
     fun verifyTransfer(room: String, start: String, end: String, onResult: (TransferCheck.Report) -> Unit) {
+        if (!::store.isInitialized) {
+            val msg = "전송 검증 ✖ 로컬 저장소 준비 안 됨"
+            onResult(TransferCheck.Report(false, msg, msg))
+            return
+        }
         exec.execute {
             try {
                 flushPending(force = true)

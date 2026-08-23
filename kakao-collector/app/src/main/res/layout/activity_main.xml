@@ -159,6 +159,12 @@
                 android:text="중지" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btnVerifyCounts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="건수 비교 (수집 없이 로컬 ↔ 서버)" />
+
         <TextView
             android:id="@+id/backfillStatus"
             android:layout_width="match_parent"

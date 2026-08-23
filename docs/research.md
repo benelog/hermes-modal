@@ -29,6 +29,7 @@ Decisions built on these facts: see [decisions.md](decisions.md).
 ## Modal platform
 
 - `modal.Dict` over `modal.Volume` for the message store: ingest and query run in different containers; Volume commit/reload timing can hide fresh writes, Dict reads are always current. Per-message keys avoid read-modify-write contention.
+- **`modal.Dict` entries expire on their own: "An individual Dict entry will expire after 7 days of inactivity (no reads or writes)"** (modal.com/docs/reference/modal.Dict; Dicts created before 2025-05-20 instead expire 30 days after last write and are memory-backed). Measured 2026-08-24 on `kakao-collect`: of 4881 phone rows, every one collected on/after 08-16 was present server-side (369/369), while only 8 of the 572 collected 08-11~08-15 survived — and all 8 are entries that were later re-written in place (stored key ≠ recomputed key), i.e. the survivors are exactly the ones that saw a write. The app's own 14-day `expired_keys` prune is therefore not the binding retention; whole-dict `list(kakao_dict.items())` scans on ingest/read did not keep untouched entries alive.
 - `cron_tick` (07:00/19:00 KST) wakes a container to run `hermes cron tick`, keeping the gateway scale-to-zero; the hermes-home volume is committed at end of each tick, so mid-tick file writes persist (usable as watermarks).
 - `hermes -z PROMPT` one-shot prints only the final LLM text to stdout — a Modal endpoint can reuse the resident Hermes model as a subprocess summarizer, no extra API key.
 

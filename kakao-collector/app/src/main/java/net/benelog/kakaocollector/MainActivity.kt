@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity() {
 
         populateForm()
         setBackfillPreset(1)
+        Uploader.ensureStore(this) // 접근성 서비스가 꺼져 있어도 건수 비교는 되도록.
 
         findViewById<Button>(R.id.btnBackfillFrom).setOnClickListener { pickDateTime(fromCal) }
         findViewById<Button>(R.id.btnBackfillTo).setOnClickListener { pickDateTime(toCal) }
@@ -72,6 +73,7 @@ class MainActivity : AppCompatActivity() {
             BackfillController.stop()
             renderBackfillStatus()
         }
+        findViewById<Button>(R.id.btnVerifyCounts).setOnClickListener { verifyCounts() }
 
         findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
             startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -205,6 +207,35 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(this, "카카오톡 앱을 찾을 수 없습니다", Toast.LENGTH_LONG).show()
             BackfillController.stop()
+        }
+    }
+
+    /**
+     * 수집을 돌리지 않고 지금 있는 데이터만으로 로컬 ↔ 서버 건수를 대조한다.
+     * 백필 종료 시의 자동 검증과 같은 경로([Uploader.verifyTransfer])를 쓰되, 카카오톡을 열지 않는다.
+     */
+    private fun verifyCounts() {
+        saveForm() // 화면에서 고친 방 목록이 바로 반영되도록.
+        refreshBackfillRooms()
+        val room = spBackfillRoom.selectedItem as? String
+        if (room.isNullOrBlank()) {
+            Toast.makeText(this, "대상 방을 먼저 설정하세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (fromCal.timeInMillis >= toCal.timeInMillis) {
+            Toast.makeText(this, "시작 시점이 끝 시점보다 앞서야 합니다", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val start = KakaoDate.isoOf(fromCal.timeInMillis)
+        val end = KakaoDate.isoOf(toCal.timeInMillis)
+        // backfillStatus 는 700ms 틱이 계속 다시 그리므로 결과는 status 에 쓴다.
+        val statusView = findViewById<TextView>(R.id.status)
+        statusView.text = "건수 비교 중… ($room $start~$end)"
+        Uploader.verifyTransfer(room, start, end) { report ->
+            mainHandler.post {
+                statusView.text = report.detail
+                Toast.makeText(this, report.summary, Toast.LENGTH_LONG).show()
+            }
         }
     }
 

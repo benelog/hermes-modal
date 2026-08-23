@@ -40,6 +40,19 @@ class TransferCheckTest {
     }
 
     // 한쪽에만 있는 날짜도 비교에 포함(서버 0으로 취급).
+    @Test fun mismatchExplainsServerExpiry() {
+        val local = mapOf("2026-07-10" to 5)
+        val server = mapOf("2026-07-10" to 1)
+        val r = TransferCheck.compare("2026-07-10", "2026-07-10", local, server, unsent = 0)
+        assertTrue(r.detail.contains("7일간 접근이 없는 레코드를 만료"))
+    }
+
+    @Test fun matchingBucketsOmitExpiryNotice() {
+        val counts = mapOf("2026-07-10" to 5)
+        val r = TransferCheck.compare("2026-07-10", "2026-07-10", counts, counts, unsent = 2)
+        assertFalse(r.detail.contains("만료"))
+    }
+
     @Test fun dateMissingOnServerCounts() {
         val local = mapOf("2026-07-10" to 5, "2026-07-11" to 4)
         val server = mapOf("2026-07-10" to 5)

@@ -43,6 +43,11 @@ object TransferCheck {
             append(summary)
             for (line in missingLines) append('\n').append(line)
             if (unsent > 0) append('\n').append("이번 범위 미전송(sent_ok=0) ${unsent}건 — 네트워크 복구 후 자동 재전송됩니다")
+            // 서버(modal.Dict)는 7일간 접근이 없는 항목을 자체 만료시킨다(2026-08-24 확인). 그보다 오래된
+            // 날짜에서 로컬 > 서버가 나오는 것은 전송 실패가 아니라 정상 만료이므로 오독하지 않게 밝혀 둔다.
+            if (missingLines.isNotEmpty()) {
+                append('\n').append("서버는 7일간 접근이 없는 레코드를 만료시킵니다 — 그보다 오래된 날짜의 차이는 정상입니다")
+            }
             if (!ok) append('\n').append("잠시 후 같은 기간으로 백필을 다시 실행하면 재전송·재검증됩니다")
         }
         return Report(ok, summary, detail)
