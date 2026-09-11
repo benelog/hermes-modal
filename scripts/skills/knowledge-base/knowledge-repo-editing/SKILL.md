@@ -44,6 +44,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
 
 1. **Understand the request**
    - Extract URL(s), requested repository/page/section if any, requested summary length, and any replacement instruction.
+   - If the user sends another knowledge-repo edit request mid-turn before the current one is committed, treat it as an additional queued edit unless they explicitly cancel/replace the first request. Finish and verify all requested edits; commit/push each affected repo separately so unrelated repo histories stay scoped.
    - If the user requests exactly N summary lines, add exactly N nested bullets.
    - If the user does not specify summary length, use 3–5 concise nested bullets depending on source density.
 
