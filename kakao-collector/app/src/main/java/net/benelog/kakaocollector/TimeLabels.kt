@@ -6,7 +6,8 @@ package net.benelog.kakaocollector
  * 카톡은 시각 라벨을 접근성 트리에 노출하지 않는다(2026-09-26 uiautomator 전체 덤프에도 없음 —
  * 캔버스에 직접 그림). 그래서 정지 확인된 프레임의 스크린샷을 OCR해 라벨 위치를 얻는다.
  *  - '오전/오후'가 붙은 것만 받는다: 접두 없이 "9:26"만 읽히면 12시간제 오전/오후를 알 수 없다.
- *  - 말풍선(본문 노드) 영역과 겹치는 줄은 버린다 — 본문 속 "내일 오후 3:00에…"는 라벨이 아니다.
+ *  - 말풍선(본문 노드)·사진 영역과 겹치는 줄은 버린다 — 본문 속 "내일 오후 3:00에…"는 라벨이 아니다.
+ *  - 라벨 영역(chat_info — 말풍선 옆 시각/안읽음 표시 자리)을 알면 그 안에 중심이 있는 줄만 받는다.
  *  - 시(時) 자릿수 누락 오독을 버린다: 2026-09-26 실측 "오전 11:36"이 "오전 1:36"으로 읽혔다.
  *    같은 글꼴의 라벨이라 한 자리 시 라벨이 두 자리 시 라벨만큼 넓으면 숫자가 빠진 것이다.
  *    (위아래 라벨과의 순서 모순은 [TimeAssigner.consistent]가 한 번 더 거른다.)
@@ -25,9 +26,14 @@ object TimeLabels {
 
     private class Candidate(val marker: TimeAssigner.Marker, val hourDigits: Int, val width: Int)
 
-    fun markers(lines: List<Line>, bubbles: List<FrameAssembler.Bubble>): List<TimeAssigner.Marker> {
+    fun markers(
+        lines: List<Line>,
+        bubbles: List<FrameAssembler.Bubble>,
+        labelAreas: List<FrameAssembler.Bubble> = emptyList(),
+    ): List<TimeAssigner.Marker> {
         val candidates = lines.mapNotNull { line ->
             if (bubbles.any { overlaps(line, it) }) return@mapNotNull null
+            if (labelAreas.isNotEmpty() && labelAreas.none { centerInside(line, it) }) return@mapNotNull null
             val m = LABEL.find(line.text) ?: return@mapNotNull null
             val (ampm, hh, mm) = m.destructured
             val time = KakaoTime.normalize("$ampm $hh:$mm")
@@ -38,6 +44,12 @@ object TimeLabels {
             val digitDropped = it.hourDigits == 1 && narrowestTwoDigit != null && it.width + WIDTH_SLACK_PX >= narrowestTwoDigit
             if (digitDropped) it.marker.copy(time = "") else it.marker
         }
+    }
+
+    private fun centerInside(l: Line, b: FrameAssembler.Bubble): Boolean {
+        val cx = (l.left + l.right) / 2
+        val cy = (l.top + l.bottom) / 2
+        return cx in b.left..b.right && cy in b.top..b.bottom
     }
 
     private fun overlaps(l: Line, b: FrameAssembler.Bubble): Boolean =

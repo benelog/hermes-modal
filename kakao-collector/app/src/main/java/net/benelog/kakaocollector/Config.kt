@@ -63,6 +63,18 @@ object Config {
     /** 방 상단 공지 배너. 목록 위에 겹쳐 그려져 그 밑 말풍선의 시각 라벨을 가린다. (실측 2026-09 카톡) */
     const val NOTICE_BANNER_ID = "com.kakao.talk:id/ll_notice"
 
+    /** 하단 입력창 영역. 목록 아래쪽을 덮는다(목록은 화면 끝까지, 입력창은 그 위에 겹침). (실측 2026-09 카톡) */
+    const val INPUT_WINDOW_ID = "com.kakao.talk:id/input_window_layout"
+
+    /** 대화 목록 RecyclerView. 사진이 목록 끝에 잘렸는지 판정에 쓴다. (실측 2026-09 카톡) */
+    const val CHAT_LIST_ID = "com.kakao.talk:id/chat_log_recycler_list"
+
+    /** 사진 말풍선 이미지(설명 "사진"). 스티커·이모티콘은 다른 노드. (실측 2026-09 카톡) */
+    const val IMAGE_ID = "com.kakao.talk:id/image"
+
+    /** 말풍선 옆 시각·안읽음 수가 그려지는 자리(글자는 트리에 없음 — OCR로 읽는다). (실측 2026-09 카톡) */
+    const val CHAT_INFO_ID = "com.kakao.talk:id/chat_info"
+
     // ── 방 멘션 요약(발신) ───────────────────────────────────────
     // 방에서 "@정상혁 …요약" 멘션을 감지하면 Modal로 요약을 받아 그 방으로 발신한다.
     // 발신은 읽기 전용 원칙을 깨므로, 입력창/전송버튼 id 캘리브레이션 후 AUTO_REPLY를 켠다.

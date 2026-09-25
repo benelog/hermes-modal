@@ -15,7 +15,10 @@ package net.benelog.kakaocollector
  */
 object FrameAssembler {
 
-    /** PASS 1에서 모은 메시지 후보(라벨 뗀 본문 + 말풍선 좌표 + 편집 라벨 여부). */
+    /**
+     * PASS 1에서 모은 메시지 후보(라벨 뗀 본문 + 말풍선 좌표 + 편집 라벨 여부). 사진 말풍선이면
+     * [imageFingerprint]에 OCR한 사진의 픽셀 지문(재OCR 생략용)이 붙는다.
+     */
     data class Bubble(
         val text: String,
         val left: Int,
@@ -23,11 +26,15 @@ object FrameAssembler {
         val top: Int,
         val bottom: Int,
         val edited: Boolean = false,
+        val imageFingerprint: String? = null,
     )
 
     /**
      * 한 프레임의 원시 관찰값(PASS 1 결과). screenWidth는 말풍선 bounds와 같은 좌표계.
-     * [overlays]는 목록 위에 겹친 UI(공지 배너 등)의 세로 구간 — 그 밑 말풍선의 시각 라벨은 가려진다.
+     * [overlays]는 목록 위에 겹친 UI(공지 배너·입력창)의 세로 구간 — 그 밑 말풍선의 시각 라벨은 가려진다.
+     * [images]는 사진 말풍선(text 없음, 좌표만) — OCR로 글자를 읽으면 [bubbles]에 합류한다.
+     * [labelAreas]는 말풍선 옆 시각/안읽음 표시 영역(chat_info) — 시각 라벨 OCR은 이 안의 것만 믿는다.
+     * [viewport]는 대화 목록의 세로 구간(사진이 잘렸는지 판정).
      */
     data class Snapshot(
         val screenWidth: Int,
@@ -36,6 +43,9 @@ object FrameAssembler {
         val dateMarkers: List<DateAssigner.Marker>,
         val timeMarkers: List<TimeAssigner.Marker>,
         val overlays: List<IntRange> = emptyList(),
+        val images: List<Bubble> = emptyList(),
+        val labelAreas: List<Bubble> = emptyList(),
+        val viewport: IntRange? = null,
     )
 
     /** 날짜·시각·보낸이가 결합된 메시지. date/sentTime은 미상이면 "". */
@@ -86,5 +96,5 @@ object FrameAssembler {
      * 비교에 넣으면 정지한 화면도 '변함'으로 보고, 뱃지가 사라진 뒤 프레임만 남아 날짜를 잃는다.
      */
     fun sameGeometry(a: Snapshot, b: Snapshot): Boolean =
-        a.screenWidth == b.screenWidth && a.bubbles == b.bubbles && a.nicknames == b.nicknames
+        a.screenWidth == b.screenWidth && a.bubbles == b.bubbles && a.nicknames == b.nicknames && a.images == b.images
 }

@@ -40,4 +40,11 @@ class TimeLabelsTest {
         )
         assertEquals(listOf("11:19", "", "09:05"), TimeLabels.markers(lines, emptyList()).map { it.time })
     }
+
+    // chat_info(시각 표시 자리)를 알면 그 밖의 시각 모양 글자(예: 사진 속 "오후 3:00")는 라벨이 아니다.
+    @Test fun acceptsOnlyLinesInsideLabelAreas() {
+        val area = FrameAssembler.Bubble("", left = 1115, right = 1290, top = 1028, bottom = 1148)
+        val lines = listOf(line("오후 5:48", 1120, 1090, right = 1280, bottom = 1140), line("오후 3:00", 300, 700))
+        assertEquals(listOf("17:48"), TimeLabels.markers(lines, emptyList(), listOf(area)).map { it.time })
+    }
 }

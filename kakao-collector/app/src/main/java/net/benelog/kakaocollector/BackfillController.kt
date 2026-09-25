@@ -44,6 +44,8 @@ object BackfillController {
     private const val NAV_TICK_MS = 1200L
     private const val NAV_TIMEOUT_MS = 25_000L
     private const val ARMED_TIMEOUT_MS = 5 * 60_000L
+    // 방 열기 중 카카오톡이 앞에 없으면(앱 화면에서 띄운 게 밀려남 등) 이 간격으로 다시 띄운다.
+    private const val RELAUNCH_INTERVAL_MS = 3000L
 
     // SEEK: 0.6화면씩 280ms 드래그(다소 빠름 — 수집 안 하므로 프레임 누락 무해).
     // COLLECT: 0.4화면씩 500ms 드래그(느림 — 프레임 겹침 보장, 모든 메시지가 settle 프레임에 등장).
@@ -82,6 +84,7 @@ object BackfillController {
     private var swipeSeq = 0
     private var peekMinDate = ""
     private var startedAt = 0L
+    private var lastLaunchAt = 0L
     private var inRoom = false
 
     // 제스처 드래그가 무반응인 기기(2026-07-13 실측: dispatchGesture true인데 리스트 정지)에서는
@@ -117,6 +120,7 @@ object BackfillController {
         lastSignature = ""; noProgress = 0; awaitingFrame = false; peekMinDate = ""
         inRoom = false; useNodeScroll = false
         startedAt = System.currentTimeMillis()
+        lastLaunchAt = startedAt // 시작 직후엔 MainActivity가 띄운 카카오톡을 기다린다
         Log.i(TAG, "backfill start room=${req.room} from=$fromDate to=$toDate")
         publish("'${req.room}' 방을 여는 중…")
         scheduleNavTick(gen)
@@ -249,7 +253,19 @@ object BackfillController {
             handler.postDelayed({ if (g == gen && phase == Phase.ARMED) finish(Phase.FAILED, "방이 열리지 않아 종료(5분 초과)") }, ARMED_TIMEOUT_MS)
             return
         }
-        svc.tryOpenRoom(targetRoom)
+        val now = System.currentTimeMillis()
+        if (!svc.kakaoInForeground()) {
+            if (now - lastLaunchAt >= RELAUNCH_INTERVAL_MS) {
+                lastLaunchAt = now
+                Log.i(TAG, "backfill: 카카오톡이 앞에 없음 → 다시 띄움")
+                if (!svc.bringKakaoToFront()) {
+                    finish(Phase.FAILED, "카카오톡 앱을 찾을 수 없습니다")
+                    return
+                }
+            }
+        } else {
+            svc.tryOpenRoom(targetRoom)
+        }
         scheduleNavTick(g)
     }
 

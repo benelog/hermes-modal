@@ -13,6 +13,8 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        // 대상 기기(Pixel, 64비트 ARM)만 — OCR 네이티브 라이브러리가 ABI별로 들어가 APK가 45MB까지 커졌다.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     buildTypes {

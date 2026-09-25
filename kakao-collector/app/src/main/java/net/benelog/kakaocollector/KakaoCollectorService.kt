@@ -61,16 +61,20 @@ class KakaoCollectorService : AccessibilityService() {
     // 발신 시각까지 제출한 키. 메시지가 처음 보인 프레임엔 시각 라벨이 화면 밖이거나 OCR이 건너뛰어져
     // 시각 없이 제출될 수 있다 — 그 뒤 시각을 읽은 프레임에서 한 번 더 제출해 제자리 승급시킨다.
     private val timed = BoundedKeySet(SEEN_CAP)
-    private val timeReader by lazy { ScreenTimeReader(this) }
+    private val screenOcr by lazy { ScreenOcr(this) }
+    // 글자를 메시지로 제출했거나 글자가 없다고 확인된 사진의 픽셀 지문 — 다시 OCR하지 않는다.
+    // (보낸이를 못 정해 제출 못 한 사진은 넣지 않아, 닉네임이 보이는 다음 프레임에서 다시 읽힌다.)
+    private val doneImages = BoundedKeySet(SEEN_CAP)
 
-    // 직전 시각 OCR 결과(방, 스냅샷, 라벨). 같은 정지 화면을 여러 레인(스크롤·새 메시지)이 각각
-    // 수집하므로, 배치가 같으면 캡처·OCR을 다시 하지 않고 재사용한다(캡처 간격 제한 충돌도 줄어든다).
-    private class OcrResult(val room: String, val snapshot: FrameAssembler.Snapshot, val markers: List<TimeAssigner.Marker>)
+    // 직전 OCR 결과(방, 스냅샷, 시각 라벨, 사진 글자 말풍선). 같은 정지 화면을 여러 레인(스크롤·새 메시지)이
+    // 각각 수집하므로, 배치가 같으면 캡처·OCR을 다시 하지 않고 재사용한다(캡처 간격 제한 충돌도 줄어든다).
+    private class OcrFrame(val markers: List<TimeAssigner.Marker>, val imageBubbles: List<FrameAssembler.Bubble>)
+    private class OcrResult(val room: String, val snapshot: FrameAssembler.Snapshot, val frame: OcrFrame)
     private var lastOcr: OcrResult? = null
     private class OcrRequest(
         val room: String,
         val snapshot: FrameAssembler.Snapshot,
-        val waiters: MutableList<(List<TimeAssigner.Marker>?) -> Unit>,
+        val waiters: MutableList<(OcrFrame?) -> Unit>,
     )
     private var ocrInFlight: OcrRequest? = null
 
@@ -256,10 +260,10 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     /**
-     * 정지 확인된 스냅샷에 화면 OCR로 읽은 시각 라벨([TimeLabels])을 더해 수집한다. OCR이 필요 없거나
-     * (SEEK, 새로 제출할 메시지 없음) 실패하면 시각 없이 수집한다. 캡처 순간의 배치가 스냅샷과 다르면
-     * 라벨 좌표를 믿지 않고(OCR 생략), 방이 바뀌었으면 버린다(다른 방으로 오태깅 방지).
-     * [done]은 main 스레드에서 정확히 한 번 불린다.
+     * 정지 확인된 스냅샷에 화면 OCR 결과 — 시각 라벨([TimeLabels])과 사진 속 글자([ImageTexts]) — 를 더해
+     * 수집한다. OCR이 필요 없거나(SEEK, 시각 미상 메시지·새 사진 없음) 실패하면 그것 없이 수집한다.
+     * 캡처 순간의 배치가 스냅샷과 다르면 좌표를 믿지 않고(OCR 생략), 방이 바뀌었으면 버린다
+     * (다른 방으로 오태깅 방지). [done]은 main 스레드에서 정확히 한 번 불린다.
      */
     private fun collectWithTimes(
         snapshot: FrameAssembler.Snapshot,
@@ -267,74 +271,110 @@ class KakaoCollectorService : AccessibilityService() {
         fromScroll: Boolean,
         done: () -> Unit,
     ) {
-        if (!needsTimeLabels(snapshot)) {
+        val images = if (BackfillController.seekActive(activeRoom)) {
+            emptyList()
+        } else {
+            ImageTexts.fullyVisible(snapshot.images, snapshot.viewport, snapshot.overlays)
+        }
+        val needsTimes = needsTimeLabels(snapshot)
+        if (!needsTimes && images.isEmpty()) {
             scrapeSafely(snapshot, allowTrigger, fromScroll)
             done()
             return
         }
         val room = activeRoom
-        readTimeMarkers(room, snapshot) { markers ->
-            if (activeRoom == room) scrapeSafely(withTimeMarkers(snapshot, markers.orEmpty()), allowTrigger, fromScroll)
+        readOcr(room, snapshot, needsTimes, images) { frame ->
+            if (activeRoom == room) {
+                val enriched = withOcr(snapshot, frame)
+                markImagesDone(room, enriched, frame)
+                scrapeSafely(enriched, allowTrigger, fromScroll)
+            }
             done()
         }
     }
 
     /**
-     * [snapshot] 화면의 시각 라벨을 OCR로 읽어 [onMarkers]에 넘긴다(실패/화면 이동이면 null). 같은 정지
-     * 화면을 여러 레인이 거의 동시에 수집하므로, 배치가 같은 직전 결과([lastOcr])나 진행 중인 OCR
-     * ([ocrInFlight])이 있으면 캡처·OCR을 다시 하지 않고 그 결과를 함께 받는다.
+     * [snapshot] 화면을 OCR해 [onFrame]에 넘긴다(실패/화면 이동이면 null). 같은 정지 화면을 여러 레인이
+     * 거의 동시에 수집하므로, 배치가 같은 직전 결과([lastOcr])나 진행 중인 OCR([ocrInFlight])이 있으면
+     * 캡처·OCR을 다시 하지 않고 그 결과를 함께 받는다.
      */
-    private fun readTimeMarkers(
+    private fun readOcr(
         room: String,
         snapshot: FrameAssembler.Snapshot,
-        onMarkers: (List<TimeAssigner.Marker>?) -> Unit,
+        fullScreen: Boolean,
+        images: List<FrameAssembler.Bubble>,
+        onFrame: (OcrFrame?) -> Unit,
     ) {
         fun sameFrame(r: String, s: FrameAssembler.Snapshot) = r == room && FrameAssembler.sameGeometry(s, snapshot)
         lastOcr?.takeIf { sameFrame(it.room, it.snapshot) }?.let {
-            onMarkers(it.markers)
+            onFrame(it.frame)
             return
         }
         ocrInFlight?.takeIf { sameFrame(it.room, it.snapshot) }?.let {
-            it.waiters.add(onMarkers)
+            it.waiters.add(onFrame)
             return
         }
-        val request = OcrRequest(room, snapshot, mutableListOf(onMarkers))
+        val request = OcrRequest(room, snapshot, mutableListOf(onFrame))
         ocrInFlight = request
         val isStill = {
             activeRoom == room && snapshotInTargetRoom()?.let { FrameAssembler.sameGeometry(snapshot, it) } == true
         }
-        timeReader.read(isStill) { lines ->
+        screenOcr.read(isStill, fullScreen, images, skipImage = { it in doneImages }) { result ->
             if (ocrInFlight === request) ocrInFlight = null
-            val markers = lines?.let { TimeLabels.markers(it, snapshot.bubbles) }
-            if (markers != null) lastOcr = OcrResult(room, snapshot, markers)
-            logTimeOcr(snapshot, lines, markers.orEmpty())
-            request.waiters.forEach { it(markers) }
+            val frame = result?.let {
+                OcrFrame(
+                    markers = it.lines?.let { lines -> TimeLabels.markers(lines, snapshot.bubbles + snapshot.images, snapshot.labelAreas) }.orEmpty(),
+                    imageBubbles = it.imageTexts.mapNotNull { (i, t) ->
+                        // 글자가 없는 사진은 text=""로 표시해 두고 메시지로는 만들지 않는다(완료 처리만).
+                        images[i].copy(text = ImageTexts.messageText(t.lines) ?: "", imageFingerprint = t.fingerprint)
+                    },
+                )
+            }
+            if (frame != null) lastOcr = OcrResult(room, snapshot, frame)
+            logOcr(snapshot, result, frame)
+            request.waiters.forEach { it(frame) }
+        }
+    }
+
+    /** OCR 결과를 스냅샷에 합친다: 시각 라벨은 마커로, 글자가 있는 사진은 말풍선으로. */
+    private fun withOcr(snapshot: FrameAssembler.Snapshot, frame: OcrFrame?): FrameAssembler.Snapshot {
+        if (frame == null) return snapshot
+        val imageMessages = frame.imageBubbles.filter { it.text.isNotEmpty() }
+        return snapshot.copy(
+            timeMarkers = snapshot.timeMarkers + frame.markers,
+            bubbles = snapshot.bubbles + imageMessages,
+        )
+    }
+
+    /** 이번에 제출될(보낸이가 정해진) 사진과 글자 없는 사진을 완료 처리 — 다음부터 OCR 생략. */
+    private fun markImagesDone(room: String, enriched: FrameAssembler.Snapshot, frame: OcrFrame?) {
+        if (frame == null || room.isEmpty()) return
+        val submittable = FrameAssembler.assemble(enriched, Settings.ownName).messages
+            .filter { it.sender != null }.map { it.text }.toSet()
+        for (img in frame.imageBubbles) {
+            val fp = img.imageFingerprint ?: continue
+            if (img.text.isEmpty() || img.text in submittable) doneImages.add(fp)
         }
     }
 
     /**
-     * 시각 OCR 진단(라벨 인식률 확인용): 줄 수(null=캡처 실패/화면 이동), 라벨처럼 보이는 줄 수,
-     * 채택 라벨 수(시각 유효/전체), 시각이 붙은 메시지 수. 라벨처럼 보이는데 버린 줄은 샘플로.
+     * OCR 진단(인식률 확인용): 화면 줄 수(null=캡처 실패/화면 이동/미요청), 라벨처럼 보이는 줄 수,
+     * 채택 라벨 수(시각 유효/전체), 시각이 붙은 메시지 수, 새로 읽은 사진 수/글자 있는 사진 수.
      */
-    private fun logTimeOcr(
-        snapshot: FrameAssembler.Snapshot,
-        lines: List<TimeLabels.Line>?,
-        markers: List<TimeAssigner.Marker>,
-    ) {
+    private fun logOcr(snapshot: FrameAssembler.Snapshot, result: ScreenOcr.Result?, frame: OcrFrame?) {
+        val lines = result?.lines
+        val markers = frame?.markers.orEmpty()
         val labelLike = lines.orEmpty().filter { it.text.contains(Regex("""(오전|오후)\s*\d""")) }
-        val assembled = FrameAssembler.assemble(withTimeMarkers(snapshot, markers), Settings.ownName).messages
+        val assembled = FrameAssembler.assemble(withOcr(snapshot, frame), Settings.ownName).messages
         Log.d(
             TAG,
-            "time OCR: lines=${lines?.size} labelLike=${labelLike.size} labels=${markers.count { it.time.isNotEmpty() }}/${markers.size}" +
+            "OCR: lines=${lines?.size} labelLike=${labelLike.size} labels=${markers.count { it.time.isNotEmpty() }}/${markers.size}" +
                 " timedMsgs=${assembled.count { it.sentTime.isNotEmpty() }}/${assembled.size}" +
-                (labelLike.filter { l -> markers.none { it.top == l.top } }.take(3)
-                    .joinToString(prefix = " dropped=") { "'${it.text}'@${it.left},${it.top}-${it.right},${it.bottom}" }
-                    .takeIf { labelLike.size > markers.size } ?: ""),
+                " imgNodes=${snapshot.images.size} labelAreas=${snapshot.labelAreas.size}" +
+                " images=${frame?.imageBubbles?.size ?: 0}/${frame?.imageBubbles?.count { it.text.isNotEmpty() } ?: 0}" +
+                (frame?.imageBubbles?.firstOrNull { it.text.isNotEmpty() }?.let { " image='${it.text.take(40)}'" } ?: ""),
         )
     }
-
-    private fun withTimeMarkers(snapshot: FrameAssembler.Snapshot, markers: List<TimeAssigner.Marker>) =
-        if (markers.isEmpty()) snapshot else snapshot.copy(timeMarkers = snapshot.timeMarkers + markers)
 
     /**
      * 이 프레임에 시각 OCR이 쓸모 있나 — 수집할 수 있는 메시지 중 아직 시각을 제출하지 못한 게 있을 때
@@ -500,15 +540,36 @@ class KakaoCollectorService : AccessibilityService() {
         val dateMarkers = ArrayList<DateAssigner.Marker>()
         val timeMarkers = ArrayList<TimeAssigner.Marker>()
         val overlays = ArrayList<IntRange>()
+        val images = ArrayList<FrameAssembler.Bubble>()
+        val labelAreas = ArrayList<FrameAssembler.Bubble>()
+        var viewport: IntRange? = null
+        fun box() = FrameAssembler.Bubble(text = "", left = rect.left, right = rect.right, top = rect.top, bottom = rect.bottom)
         for (root in roots) {
             walk(root) { n ->
                 val id = n.viewIdResourceName ?: ""
-                // 카톡이 본문/닉네임을 text가 아니라 contentDescription에 두기도 한다 → text 우선, 없으면 cd.
-                if (id == Config.NOTICE_BANNER_ID) {
-                    n.getBoundsInScreen(rect)
-                    overlays.add(rect.top..rect.bottom)
-                    return@walk
+                // 좌표만 쓰는 노드(글자 없음): 겹친 UI, 목록 범위, 사진, 시각 라벨 자리.
+                when (id) {
+                    Config.NOTICE_BANNER_ID, Config.INPUT_WINDOW_ID -> {
+                        n.getBoundsInScreen(rect)
+                        overlays.add(rect.top..rect.bottom)
+                        return@walk
+                    }
+                    Config.CHAT_LIST_ID -> {
+                        n.getBoundsInScreen(rect)
+                        viewport = rect.top..rect.bottom
+                    }
+                    Config.IMAGE_ID -> {
+                        n.getBoundsInScreen(rect)
+                        images.add(box())
+                        return@walk
+                    }
+                    Config.CHAT_INFO_ID -> {
+                        n.getBoundsInScreen(rect)
+                        labelAreas.add(box())
+                        return@walk
+                    }
                 }
+                // 카톡이 본문/닉네임을 text가 아니라 contentDescription에 두기도 한다 → text 우선, 없으면 cd.
                 val value = nodeValue(n)
                 if (value.isEmpty()) return@walk
                 when {
@@ -551,7 +612,10 @@ class KakaoCollectorService : AccessibilityService() {
                 }
             }
         }
-        return FrameAssembler.Snapshot(measureScreenWidth(roots), bubbles, nicknames, dateMarkers, timeMarkers, overlays)
+        return FrameAssembler.Snapshot(
+            measureScreenWidth(roots), bubbles, nicknames, dateMarkers, timeMarkers,
+            overlays, images, labelAreas, viewport,
+        )
     }
 
     /**
@@ -721,6 +785,25 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     // ── 백필 수집 지원([BackfillController]가 main 스레드에서 호출) ──────────
+
+    /** 지금 활성 창이 카카오톡인가. */
+    fun kakaoInForeground(): Boolean = rootInActiveWindow?.let(::isKakao) == true
+
+    /**
+     * 카카오톡을 앞으로 띄운다. 앱 화면에서 띄운 것이 곧바로 밀려나는 경우가 있어(2026-09-26 실측:
+     * 하단 제스처 영역 근처 탭이 최근 앱 전환을 시작해, 그 전환이 끝나며 수집기 앱을 다시 앞으로
+     * 되돌림) 백필의 방 열기 단계가 재시도한다. 접근성 서비스는 백그라운드 액티비티 실행 제한의 예외다.
+     */
+    fun bringKakaoToFront(): Boolean {
+        val intent = packageManager.getLaunchIntentForPackage(Config.KAKAO_PACKAGE) ?: return false
+        return try {
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "kakao launch failed: ${e.message}")
+            false
+        }
+    }
 
     /** 지금 이 순간 '대상 방 화면'인가(패키지+툴바 제목 재확인). 다른 앱/방에 제스처 오발사 방지. */
     fun inRoomNow(room: String): Boolean {
