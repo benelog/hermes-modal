@@ -18,7 +18,10 @@ Decisions built on these facts: see [decisions.md](decisions.md).
 - Reply bubbles: `nickname` = the real replier; `message` text = `답장 메시지 {reply body}` (prefix strips to the true reply; body is never the quoted original); the quoted original lives in separate `source_nickname`/`source_message` nodes (id ≠ `message`, so not collected).
 - Own bubbles carry no nickname/profile node. Geometry separates own vs others: others' bubbles start at left ratio ≈0.14; own at ≥0.34. During fast scroll, node bounds are UNSTABLE → geometry misfires; a settle-debounce (collect ~250ms after scroll stops) reduces but does not eliminate them.
 - Edited messages: the `message` node's text starts with `수정됨 ` (label folded into the node, widening its bounds); editing your own message shows a composer whose header is a `nickname`-id node reading `메시지 수정` above a `message`-id preview of the original (both scraped as a fake bubble before 2026-09-26).
-- `id/time` (minute clock) was never populated: 0 of 6729 phone rows had `sent_time` (audit 2026-09-26, Kakao up to 26.8.2) — the node is absent from the a11y tree on this build.
+- `id/time` (minute clock) was never populated: 0 of 6729 phone rows had `sent_time` (audit 2026-09-26, Kakao up to 26.8.2). A full (non-compressed, not-important views included) uiautomator dump of a room shows no time or unread-count node at all although "오후 9:26" / "58" are on screen — drawn without a11y exposure. Screen OCR is the only source (decision #10).
+- The `수정됨` label is its own node (`modified_label`) AND folded into the `message` node's text; for others' bubbles it sits at the right end INSIDE the message node's bounds.
+- The notice banner `ll_notice` overlays the top of the chat list (message nodes under it still report their bounds).
+- `uiautomator dump` suspends other accessibility services while it runs — a running backfill aborts with "접근성 서비스 연결이 끊겼습니다". Watch a live session with logcat / `screencap` instead.
 - Long messages: the a11y text caps at ~500 chars + `…` (전체보기 case); the full body is never exposed (31 rows at 497–501 chars).
 - Resource ids (message/nickname/time/title/input/send) are version-dependent; must be re-calibrated after KakaoTalk updates (CALIBRATE mode dumps node ids to logcat).
 

@@ -39,7 +39,10 @@ object Config {
     /** 보낸이 이름 노드 id. (실측: name이 아니라 nickname) */
     const val NAME_ID = "com.kakao.talk:id/nickname"
 
-    /** 시각 노드 id. (실측: created_at이 아니라 time. 단, 분 단위 시각은 접근성에 사실상 노출 안 됨 → 죽은 설정) */
+    /**
+     * 시각 노드 id. (실측: created_at이 아니라 time. 단, 2026-09 카톡은 이 노드를 접근성에 노출하지 않아
+     * 시각은 화면 OCR([ScreenTimeReader])로 읽는다 — 노드가 다시 노출되는 버전이면 이 경로도 함께 쓰인다.)
+     */
     const val TIME_ID = "com.kakao.talk:id/time"
 
     /**
@@ -56,6 +59,9 @@ object Config {
      * 있어, 현재 방을 매 이벤트마다 확실히 식별하는 1차 수단으로 쓴다. (실측 2026-06 카톡)
      */
     const val TOOLBAR_TITLE_ID = "com.kakao.talk:id/toolbar_default_title_text"
+
+    /** 방 상단 공지 배너. 목록 위에 겹쳐 그려져 그 밑 말풍선의 시각 라벨을 가린다. (실측 2026-09 카톡) */
+    const val NOTICE_BANNER_ID = "com.kakao.talk:id/ll_notice"
 
     // ── 방 멘션 요약(발신) ───────────────────────────────────────
     // 방에서 "@정상혁 …요약" 멘션을 감지하면 Modal로 요약을 받아 그 방으로 발신한다.

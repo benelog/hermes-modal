@@ -47,8 +47,8 @@ object Uploader {
     }
 
     /** 인메모리 seen 시드용 — 최근 키. [init] 이후 호출. */
-    fun recentKeys(limit: Int): Set<String> =
-        if (::store.isInitialized) store.recentKeys(limit) else emptySet()
+    fun recentKeys(limit: Int, timedOnly: Boolean = false): Set<String> =
+        if (::store.isInitialized) store.recentKeys(limit, timedOnly) else emptySet()
 
     /**
      * 수집 메시지 제출: DB 기록/병합 → 새 행이거나 누락 필드(본문/날짜/시각) 갱신이면 POST → 성공 시 sent_ok.

@@ -277,10 +277,23 @@ class PlanIngestTests(unittest.TestCase):
         self.assertEqual(plan["action"], "skip")
         self.assertEqual(plan["key"], "E")
 
+    def test_adjacent_day_rescrape_within_minutes_skips(self):
+        # 날짜 경계 오부여: 같은 본문이 몇 분 만에 인접일로 다시 오면 첫 사본을 유지.
+        e = self._rec("동일한 메시지", ct="2026-06-24", ra="2026-06-24T00:00:00+00:00")
+        n = self._rec("동일한 메시지", ct="2026-06-25", ra="2026-06-24T00:05:00+00:00")
+        plan = collector_core.plan_ingest([("E", e)], n, "K")
+        self.assertEqual((plan["action"], plan["key"]), ("skip", "E"))
+
+    def test_adjacent_day_repeat_long_after_stores(self):
+        # 한참 뒤에 다음 날 같은 말을 또 한 것은 새 메시지.
+        e = self._rec("동일한 메시지", ct="2026-06-24", ra="2026-06-24T00:00:00+00:00")
+        n = self._rec("동일한 메시지", ct="2026-06-25", ra="2026-06-24T15:00:00+00:00")
+        self.assertEqual(collector_core.plan_ingest([("E", e)], n, "K")["action"], "store")
+
     def test_same_text_different_day_stores(self):
         e = self._rec("동일한 메시지", ct="2026-06-24")
         plan = collector_core.plan_ingest(
-            [("E", e)], self._rec("동일한 메시지", ct="2026-06-25"), "K"
+            [("E", e)], self._rec("동일한 메시지", ct="2026-06-25", ra="2026-06-25T01:00:00+00:00"), "K"
         )
         self.assertEqual(plan["action"], "store")
 
@@ -310,7 +323,7 @@ class PlanIngestTests(unittest.TestCase):
     def test_dateless_existing_upgraded_by_dated_incoming(self):
         # empty→date transition: a stored dateless copy is upgraded in place, not duplicated.
         e = self._rec("좋은 아침입니다 여러분", ct="", ra="2026-06-24T01:00:00+00:00")
-        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26"), "K")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26", ra="2026-06-25T23:00:00+00:00"), "K")
         self.assertEqual(plan["action"], "update")
         self.assertEqual(plan["key"], "E")
         self.assertEqual(plan["rec"]["client_time"], "2026-06-26")
@@ -323,7 +336,7 @@ class PlanIngestTests(unittest.TestCase):
 
     def test_same_text_two_known_days_kept_separate(self):
         e = self._rec("좋은 아침입니다 여러분", ct="2026-06-25")
-        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26"), "K")
+        plan = collector_core.plan_ingest([("E", e)], self._rec("좋은 아침입니다 여러분", ct="2026-06-26", ra="2026-06-25T23:00:00+00:00"), "K")
         self.assertEqual(plan["action"], "store")
 
     def test_update_fills_missing_sender(self):
@@ -447,6 +460,24 @@ class EffectiveSentAtTests(unittest.TestCase):
                "received_at": "2026-06-30T05:00:00+00:00"}  # KST 14:00
         dt = collector_core.effective_sent_at(rec)
         self.assertEqual((dt.year, dt.month, dt.day, dt.hour), (2026, 6, 24, 14))
+
+    def test_time_without_date_is_latest_such_moment_before_receipt(self):
+        # 날짜 구분선이 안 보인 실시간 메시지: 수신 직전의 그 시:분(KST).
+        rec = {"client_time": "", "sent_time": "13:58",
+               "received_at": "2026-06-30T05:00:00+00:00"}  # KST 14:00
+        dt = collector_core.effective_sent_at(rec)
+        self.assertEqual((dt.month, dt.day, dt.hour, dt.minute), (6, 30, 13, 58))
+
+    def test_time_without_date_after_receipt_clock_is_previous_day(self):
+        rec = {"client_time": "", "sent_time": "23:50",
+               "received_at": "2026-06-30T15:10:00+00:00"}  # KST 07-01 00:10
+        dt = collector_core.effective_sent_at(rec)
+        self.assertEqual((dt.month, dt.day, dt.hour, dt.minute), (6, 30, 23, 50))
+
+    def test_time_without_date_tolerates_small_clock_skew(self):
+        rec = {"client_time": "", "sent_time": "14:02",
+               "received_at": "2026-06-30T05:00:00+00:00"}  # KST 14:00, 폰 시계가 2분 빠름
+        self.assertEqual(collector_core.effective_sent_at(rec).day, 30)
 
     def test_no_date_falls_back_to_received(self):
         rec = {"client_time": "", "sent_time": "", "received_at": "2026-06-30T05:00:00+00:00"}

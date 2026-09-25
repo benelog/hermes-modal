@@ -37,5 +37,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // 시각 라벨 OCR(카톡이 접근성에 노출하지 않음). 모델 번들형 — 기기 내 실행, 네트워크 불필요.
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     testImplementation("junit:junit:4.13.2")
 }

@@ -42,4 +42,20 @@ class TimeAssignerTest {
         val markers = listOf(TimeAssigner.Marker(top = 296, time = "21:40"))
         assertEquals(listOf("21:40"), TimeAssigner.assign(markers, emptyList(), listOf(300)))
     }
+
+    // 같은 날 안에서 위→아래 시각이 거꾸로 가는 라벨(오독)은 미상 처리 — 그 묶음이 아래 라벨을 대신 집지 않는다.
+    @Test fun outOfOrderLabelMakesItsGroupUnknown() {
+        val markers = listOf(
+            TimeAssigner.Marker(100, "11:19"),
+            TimeAssigner.Marker(300, "01:36"),
+            TimeAssigner.Marker(500, "11:37"),
+        )
+        assertEquals(listOf("11:19", "", "11:37"), TimeAssigner.assign(markers, emptyList(), listOf(60, 250, 450)))
+    }
+
+    // 날짜 구분선을 넘으면 시각이 줄어드는 게 정상 — 구간별로만 순서를 본다.
+    @Test fun orderIsCheckedPerDay() {
+        val markers = listOf(TimeAssigner.Marker(100, "23:50"), TimeAssigner.Marker(500, "00:10"))
+        assertEquals(listOf("23:50", "00:10"), TimeAssigner.assign(markers, listOf(300), listOf(60, 450)))
+    }
 }

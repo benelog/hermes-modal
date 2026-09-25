@@ -25,13 +25,17 @@ object FrameAssembler {
         val edited: Boolean = false,
     )
 
-    /** 한 프레임의 원시 관찰값(PASS 1 결과). screenWidth는 말풍선 bounds와 같은 좌표계. */
+    /**
+     * 한 프레임의 원시 관찰값(PASS 1 결과). screenWidth는 말풍선 bounds와 같은 좌표계.
+     * [overlays]는 목록 위에 겹친 UI(공지 배너 등)의 세로 구간 — 그 밑 말풍선의 시각 라벨은 가려진다.
+     */
     data class Snapshot(
         val screenWidth: Int,
         val bubbles: List<Bubble>,
         val nicknames: List<SenderAssigner.NickMarker>,
         val dateMarkers: List<DateAssigner.Marker>,
         val timeMarkers: List<TimeAssigner.Marker>,
+        val overlays: List<IntRange> = emptyList(),
     )
 
     /** 날짜·시각·보낸이가 결합된 메시지. date/sentTime은 미상이면 "". */
@@ -59,7 +63,9 @@ object FrameAssembler {
             Message(
                 text = b.text,
                 date = dates[i],
-                sentTime = sentTimes[i],
+                // 라벨은 말풍선 아래끝 옆에 붙는다 — 아래끝이 가려졌으면 자기 라벨 대신 아래쪽 다른
+                // 묶음의 라벨(더 늦은 시각)을 집게 되므로 미상으로 둔다(보일 때 재수집에서 채움).
+                sentTime = if (snapshot.overlays.any { b.bottom in it }) "" else sentTimes[i],
                 sender = SenderAssigner.assign(
                     snapshot.screenWidth, b.left, b.right, b.top, ownName, snapshot.nicknames, b.edited,
                 ),

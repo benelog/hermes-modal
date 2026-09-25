@@ -67,6 +67,29 @@ def extends(shorter: str, longer: str, min_len: int = 12) -> bool:
     return longer.startswith(s)
 
 
+# A re-scrape that lands the same text on an ADJACENT day minutes after the first copy is
+# a date-boundary mis-assignment (lagging sticky date badge / missed divider), not a new
+# message — same rule and window as the phone's live-collection guard (MergePolicy).
+CROSS_DAY_RESCRAPE_WINDOW = timedelta(minutes=10)
+
+
+def _adjacent_days(a: str, b: str) -> bool:
+    try:
+        d = datetime.strptime(a, "%Y-%m-%d") - datetime.strptime(b, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return False
+    return abs(d.days) == 1
+
+
+def _is_boundary_rescrape(rec: dict, new_rec: dict) -> bool:
+    """Stored `rec` and incoming `new_rec` (same text) are one message whose date was
+    mis-read on one of the scrapes: known adjacent days, received within minutes."""
+    if not _adjacent_days(rec.get("client_time") or "", new_rec.get("client_time") or ""):
+        return False
+    gap = _parse_received_at(new_rec.get("received_at", "")) - _parse_received_at(rec.get("received_at", ""))
+    return abs(gap) <= CROSS_DAY_RESCRAPE_WINDOW
+
+
 def _ct_compatible(a: str, b: str) -> bool:
     """Two client_times may belong to the same message if equal, or if either
     is blank (legacy rows / pre-date-feature) — never merge across known days."""
@@ -141,6 +164,8 @@ def plan_ingest(items_with_keys, new_rec: dict, new_key: str) -> dict:
                 if merged is not None:
                     return {"action": "update", "key": key, "rec": merged}
                 return {"action": "skip", "key": key}
+            if _is_boundary_rescrape(rec, new_rec):
+                return {"action": "skip", "key": key}  # first copy wins (keeps its date/order)
             continue  # same text but different known days → not this row; keep scanning
         if _ct_compatible(ect, nct):
             if extends(etext, ntext):  # stored copy is shorter → fill it in, keep its slot
@@ -272,6 +297,7 @@ def _parse_received_at(value: str) -> datetime:
 
 
 KST = timezone(timedelta(hours=9))
+DATELESS_CLOCK_SKEW = timedelta(minutes=5)
 
 _CLIENT_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -282,14 +308,24 @@ def effective_sent_at(rec: dict) -> datetime:
     Priority: client_time date + sent_time (both scraped off the screen, KST) →
     client_time date + received time-of-day (day-accurate; within a backfilled day
     the receive order IS the conversation order, so the receive clock preserves it) →
-    received_at (legacy rows with no scraped date at all).
+    sent_time alone: the latest moment at that HH:MM not after receipt (a live message
+    at the bottom of the screen often has no date divider in view, but its time label
+    is there and it was sent minutes before receipt) →
+    received_at (no scraped date or time at all).
     """
     received = _parse_received_at(rec.get("received_at", ""))
     date = (rec.get("client_time") or "").strip()
-    if not _CLIENT_DATE_RE.fullmatch(date):
-        return received
-    year, month, day = int(date[:4]), int(date[5:7]), int(date[8:10])
     st = normalize_sent_time(rec.get("sent_time"))
+    if not _CLIENT_DATE_RE.fullmatch(date):
+        if not st:
+            return received
+        rk = received.astimezone(KST)
+        candidate = rk.replace(hour=int(st[:2]), minute=int(st[3:]), second=0, microsecond=0)
+        # Small allowance for device/server clock skew before assuming the previous day.
+        if candidate > rk + DATELESS_CLOCK_SKEW:
+            candidate -= timedelta(days=1)
+        return candidate
+    year, month, day = int(date[:4]), int(date[5:7]), int(date[8:10])
     try:
         if st:
             return datetime(year, month, day, int(st[:2]), int(st[3:]), tzinfo=KST)

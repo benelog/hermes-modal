@@ -121,4 +121,17 @@ class FrameAssemblerTest {
         val withBadge = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-07-01")))
         assertTrue(FrameAssembler.sameGeometry(withBadge, snapshot(bubble("메시지", top = 300))))
     }
+
+    // 공지 배너에 아래끝이 가려진 말풍선은 자기 시각 라벨이 안 보인다 → 아래 다른 묶음 라벨을 집지 않고 미상.
+    @Test fun sentTimeBlankWhenBubbleBottomIsUnderOverlay() {
+        val snapshot = FrameAssembler.Snapshot(
+            screenWidth = screenW,
+            bubbles = listOf(bubble("배너 밑", top = 390), bubble("보이는 것", top = 900)),
+            nicknames = listOf(SenderAssigner.NickMarker(top = 300, name = "친구")),
+            dateMarkers = emptyList(),
+            timeMarkers = listOf(TimeAssigner.Marker(top = 950, time = "21:32")),
+            overlays = listOf(390..641),
+        )
+        assertEquals(listOf("", "21:32"), FrameAssembler.assemble(snapshot, ownName = "나").messages.map { it.sentTime })
+    }
 }

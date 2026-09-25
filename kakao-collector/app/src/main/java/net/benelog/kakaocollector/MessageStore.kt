@@ -237,12 +237,15 @@ class MessageStore(context: Context) :
         }
     }
 
-    /** 최근 행들의 dedupe 키(인메모리 seen 시드용). sender 제외(room,text,client_time). */
-    fun recentKeys(limit: Int): Set<String> {
+    /**
+     * 최근 행들의 dedupe 키(인메모리 seen 시드용). sender 제외(room,text,client_time).
+     * [timedOnly]면 발신 시각까지 채워진 행만 — 시각 수집이 끝난 키(재제출·OCR 불필요) 시드용.
+     */
+    fun recentKeys(limit: Int, timedOnly: Boolean = false): Set<String> {
         val out = LinkedHashSet<String>()
         readableDatabase.query(
             "messages", arrayOf("room", "text", "client_time"),
-            null, null, null, null, "_id DESC", limit.toString(),
+            if (timedOnly) "sent_time<>''" else null, null, null, null, "_id DESC", limit.toString(),
         ).use { c ->
             while (c.moveToNext()) {
                 out.add(DedupeKey.of(c.getString(0), c.getString(1), c.getString(2) ?: ""))

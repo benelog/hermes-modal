@@ -303,15 +303,27 @@ def kakao_ingest(item: dict, token: str = ""):
     # Dedupe key excludes sender (heuristic, flips between scrapes). Then merge
     # truncation/edit variants in place against what's stored, so a message is
     # kept once at its earliest received_at (= conversation order) with its
-    # fullest text. plan_ingest scans the dict; ingest is low-frequency because
-    # the device already dedupes locally before POSTing.
+    # fullest text.
     key = message_key(rec["room"], rec["text"], rec["client_time"])
-    plan = plan_ingest(list(kakao_dict.items()), rec, key)
+    # Fast path: the exact key is stored (backfill re-posts, retries) — merge against
+    # it alone instead of reading the whole Dict (the full scan made a backfill's
+    # re-post queue take ~15 min on 2026-09-26).
+    stored = kakao_dict.get(key)
+    if stored is not None:
+        plan = plan_ingest([(key, stored)], rec, key)
+    else:
+        plan = plan_ingest(list(kakao_dict.items()), rec, key)
     if plan["action"] == "store":
         kakao_dict[plan["key"]] = rec
     elif plan["action"] == "update":
         kakao_dict[plan["key"]] = plan["rec"]
-    # "skip": an equal or fuller copy is already stored — leave it untouched.
+    else:
+        # "skip": an equal or fuller copy is stored. Re-write it unchanged anyway —
+        # modal.Dict expires entries after 7 days WITHOUT WRITES, and a backfill
+        # re-post is exactly the device saying "this message still exists".
+        existing = stored if plan["key"] == key and stored is not None else kakao_dict.get(plan["key"])
+        if existing is not None:
+            kakao_dict[plan["key"]] = existing
     return {"ok": True, "action": plan["action"], "key": plan["key"]}
 
 

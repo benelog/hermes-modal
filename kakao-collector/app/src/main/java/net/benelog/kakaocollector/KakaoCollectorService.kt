@@ -58,6 +58,21 @@ class KakaoCollectorService : AccessibilityService() {
     }
 
     private val seen = BoundedKeySet(SEEN_CAP)
+    // 발신 시각까지 제출한 키. 메시지가 처음 보인 프레임엔 시각 라벨이 화면 밖이거나 OCR이 건너뛰어져
+    // 시각 없이 제출될 수 있다 — 그 뒤 시각을 읽은 프레임에서 한 번 더 제출해 제자리 승급시킨다.
+    private val timed = BoundedKeySet(SEEN_CAP)
+    private val timeReader by lazy { ScreenTimeReader(this) }
+
+    // 직전 시각 OCR 결과(방, 스냅샷, 라벨). 같은 정지 화면을 여러 레인(스크롤·새 메시지)이 각각
+    // 수집하므로, 배치가 같으면 캡처·OCR을 다시 하지 않고 재사용한다(캡처 간격 제한 충돌도 줄어든다).
+    private class OcrResult(val room: String, val snapshot: FrameAssembler.Snapshot, val markers: List<TimeAssigner.Marker>)
+    private var lastOcr: OcrResult? = null
+    private class OcrRequest(
+        val room: String,
+        val snapshot: FrameAssembler.Snapshot,
+        val waiters: MutableList<(List<TimeAssigner.Marker>?) -> Unit>,
+    )
+    private var ocrInFlight: OcrRequest? = null
 
     // 백필 COLLECT 세션에서 '이미 제출한 키'(장기 seen과 별개) — 겹치는 프레임의 같은 메시지를
     // 세션당 1회만 제출/재전송하기 위한 것. 세션(COLLECT 단계) 시작 때 비운다.
@@ -90,6 +105,7 @@ class KakaoCollectorService : AccessibilityService() {
         Uploader.init(this, RETENTION_MS)
         // 재시작해도 최근 수집분을 '이미 봄'으로 인식 → 재전송/재발화 방지.
         seen.addAll(Uploader.recentKeys(SEEN_CAP))
+        timed.addAll(Uploader.recentKeys(SEEN_CAP, timedOnly = true))
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
@@ -192,8 +208,8 @@ class KakaoCollectorService : AccessibilityService() {
             val prev = previous
             when {
                 prev != null && previousRoom == activeRoom && FrameAssembler.sameGeometry(prev, snapshot) -> {
-                    scrapeSafely(prev, allowTrigger, fromScroll)
-                    endCheck()
+                    // 시각 OCR이 끝날 때까지 확인 중 상태를 유지(그 사이 이벤트는 rerun으로 모은다).
+                    collectWithTimes(prev, allowTrigger, fromScroll) { endCheck() }
                 }
                 checks >= MAX_STABLE_CHECKS -> {
                     if (rerun) {
@@ -236,6 +252,98 @@ class KakaoCollectorService : AccessibilityService() {
         } catch (e: Exception) {
             Log.w(TAG, "snapshot error: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * 정지 확인된 스냅샷에 화면 OCR로 읽은 시각 라벨([TimeLabels])을 더해 수집한다. OCR이 필요 없거나
+     * (SEEK, 새로 제출할 메시지 없음) 실패하면 시각 없이 수집한다. 캡처 순간의 배치가 스냅샷과 다르면
+     * 라벨 좌표를 믿지 않고(OCR 생략), 방이 바뀌었으면 버린다(다른 방으로 오태깅 방지).
+     * [done]은 main 스레드에서 정확히 한 번 불린다.
+     */
+    private fun collectWithTimes(
+        snapshot: FrameAssembler.Snapshot,
+        allowTrigger: Boolean,
+        fromScroll: Boolean,
+        done: () -> Unit,
+    ) {
+        if (!needsTimeLabels(snapshot)) {
+            scrapeSafely(snapshot, allowTrigger, fromScroll)
+            done()
+            return
+        }
+        val room = activeRoom
+        readTimeMarkers(room, snapshot) { markers ->
+            if (activeRoom == room) scrapeSafely(withTimeMarkers(snapshot, markers.orEmpty()), allowTrigger, fromScroll)
+            done()
+        }
+    }
+
+    /**
+     * [snapshot] 화면의 시각 라벨을 OCR로 읽어 [onMarkers]에 넘긴다(실패/화면 이동이면 null). 같은 정지
+     * 화면을 여러 레인이 거의 동시에 수집하므로, 배치가 같은 직전 결과([lastOcr])나 진행 중인 OCR
+     * ([ocrInFlight])이 있으면 캡처·OCR을 다시 하지 않고 그 결과를 함께 받는다.
+     */
+    private fun readTimeMarkers(
+        room: String,
+        snapshot: FrameAssembler.Snapshot,
+        onMarkers: (List<TimeAssigner.Marker>?) -> Unit,
+    ) {
+        fun sameFrame(r: String, s: FrameAssembler.Snapshot) = r == room && FrameAssembler.sameGeometry(s, snapshot)
+        lastOcr?.takeIf { sameFrame(it.room, it.snapshot) }?.let {
+            onMarkers(it.markers)
+            return
+        }
+        ocrInFlight?.takeIf { sameFrame(it.room, it.snapshot) }?.let {
+            it.waiters.add(onMarkers)
+            return
+        }
+        val request = OcrRequest(room, snapshot, mutableListOf(onMarkers))
+        ocrInFlight = request
+        val isStill = {
+            activeRoom == room && snapshotInTargetRoom()?.let { FrameAssembler.sameGeometry(snapshot, it) } == true
+        }
+        timeReader.read(isStill) { lines ->
+            if (ocrInFlight === request) ocrInFlight = null
+            val markers = lines?.let { TimeLabels.markers(it, snapshot.bubbles) }
+            if (markers != null) lastOcr = OcrResult(room, snapshot, markers)
+            logTimeOcr(snapshot, lines, markers.orEmpty())
+            request.waiters.forEach { it(markers) }
+        }
+    }
+
+    /**
+     * 시각 OCR 진단(라벨 인식률 확인용): 줄 수(null=캡처 실패/화면 이동), 라벨처럼 보이는 줄 수,
+     * 채택 라벨 수(시각 유효/전체), 시각이 붙은 메시지 수. 라벨처럼 보이는데 버린 줄은 샘플로.
+     */
+    private fun logTimeOcr(
+        snapshot: FrameAssembler.Snapshot,
+        lines: List<TimeLabels.Line>?,
+        markers: List<TimeAssigner.Marker>,
+    ) {
+        val labelLike = lines.orEmpty().filter { it.text.contains(Regex("""(오전|오후)\s*\d""")) }
+        val assembled = FrameAssembler.assemble(withTimeMarkers(snapshot, markers), Settings.ownName).messages
+        Log.d(
+            TAG,
+            "time OCR: lines=${lines?.size} labelLike=${labelLike.size} labels=${markers.count { it.time.isNotEmpty() }}/${markers.size}" +
+                " timedMsgs=${assembled.count { it.sentTime.isNotEmpty() }}/${assembled.size}" +
+                (labelLike.filter { l -> markers.none { it.top == l.top } }.take(3)
+                    .joinToString(prefix = " dropped=") { "'${it.text}'@${it.left},${it.top}-${it.right},${it.bottom}" }
+                    .takeIf { labelLike.size > markers.size } ?: ""),
+        )
+    }
+
+    private fun withTimeMarkers(snapshot: FrameAssembler.Snapshot, markers: List<TimeAssigner.Marker>) =
+        if (markers.isEmpty()) snapshot else snapshot.copy(timeMarkers = snapshot.timeMarkers + markers)
+
+    /**
+     * 이 프레임에 시각 OCR이 쓸모 있나 — 수집할 수 있는 메시지 중 아직 시각을 제출하지 못한 게 있을 때
+     * (새 메시지 포함). 이미 시각이 채워진 화면에선 캡처·OCR을 하지 않는다. SEEK(수집 안 함)은 제외.
+     */
+    private fun needsTimeLabels(snapshot: FrameAssembler.Snapshot): Boolean {
+        if (snapshot.bubbles.isEmpty() || BackfillController.seekActive(activeRoom)) return false
+        return FrameAssembler.assemble(snapshot, Settings.ownName).messages.any {
+            it.sender != null && DedupeKey.of(activeRoom, it.text, it.date) !in timed
         }
     }
 
@@ -334,13 +442,16 @@ class KakaoCollectorService : AccessibilityService() {
             // 백필 COLLECT는 장기 seen 캐시를 우회해 재제출하되(DB 병합이 중복은 거르고 누락
             // 날짜/시각만 채움) 세션 내에서는 키당 1회만 — 겹치는 프레임의 중복 제출 방지.
             val sender = m.sender
+            // 이번에 처음 시각을 읽은 메시지 — 이미 제출했어도 시각을 채우러 한 번 더 제출한다.
+            val timeNewlyKnown = m.sentTime.isNotEmpty() && key !in timed
             val shouldSubmit = when {
                 seekOnly || sender == null -> false
-                backfillCollect -> backfillSubmitted.add(key)
-                else -> isNew
+                backfillCollect -> backfillSubmitted.add(key) || timeNewlyKnown
+                else -> isNew || timeNewlyKnown
             }
             if (shouldSubmit && sender != null) {
                 seen.add(key)
+                if (m.sentTime.isNotEmpty()) timed.add(key)
                 if (isNew) newCount++
                 val onOutcome: ((MessageStore.Outcome) -> Unit)? =
                     if (backfillCollect) BackfillController::onSubmitOutcome else null
@@ -388,10 +499,16 @@ class KakaoCollectorService : AccessibilityService() {
         val nicknames = ArrayList<SenderAssigner.NickMarker>()
         val dateMarkers = ArrayList<DateAssigner.Marker>()
         val timeMarkers = ArrayList<TimeAssigner.Marker>()
+        val overlays = ArrayList<IntRange>()
         for (root in roots) {
             walk(root) { n ->
                 val id = n.viewIdResourceName ?: ""
                 // 카톡이 본문/닉네임을 text가 아니라 contentDescription에 두기도 한다 → text 우선, 없으면 cd.
+                if (id == Config.NOTICE_BANNER_ID) {
+                    n.getBoundsInScreen(rect)
+                    overlays.add(rect.top..rect.bottom)
+                    return@walk
+                }
                 val value = nodeValue(n)
                 if (value.isEmpty()) return@walk
                 when {
@@ -434,7 +551,7 @@ class KakaoCollectorService : AccessibilityService() {
                 }
             }
         }
-        return FrameAssembler.Snapshot(measureScreenWidth(roots), bubbles, nicknames, dateMarkers, timeMarkers)
+        return FrameAssembler.Snapshot(measureScreenWidth(roots), bubbles, nicknames, dateMarkers, timeMarkers, overlays)
     }
 
     /**
