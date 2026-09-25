@@ -12,6 +12,21 @@ class KakaoTextTest {
     @Test fun trimsAndStripsPrefix() =
         assertEquals("안녕", KakaoText.clean("  답장 메시지   안녕 "))
 
+    // '수정됨' 라벨은 스크랩마다 붙었다 말았다 해 같은 메시지를 두 행으로 갈랐다.
+    @Test fun stripsEditedLabel() {
+        assertEquals("학교는 교육기관", KakaoText.clean("수정됨 학교는 교육기관"))
+        assertEquals("고친 답글", KakaoText.clean("답장 메시지 수정됨 고친 답글"))
+        assertEquals("고친 답글", KakaoText.clean("수정됨 답장 메시지 고친 답글"))
+        assertEquals("내용 수정됨 끝", KakaoText.clean("내용 수정됨 끝")) // 본문 중간은 그대로
+    }
+
+    @Test fun detectsEditedLabel() {
+        assertTrue(KakaoText.isEdited("수정됨 학교는 교육기관"))
+        assertTrue(KakaoText.isEdited("답장 메시지 수정됨 고친 답글"))
+        assertFalse(KakaoText.isEdited("답장 메시지 그냥 답글"))
+        assertFalse(KakaoText.isEdited("내용 수정됨 끝"))
+    }
+
     @Test fun leavesPlainText() =
         assertEquals("그냥 메시지", KakaoText.clean("그냥 메시지"))
 

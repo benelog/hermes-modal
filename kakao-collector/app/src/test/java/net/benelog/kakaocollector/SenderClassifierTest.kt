@@ -53,4 +53,15 @@ class SenderClassifierTest {
         // 우측 밀착이어도 좌측이 거터~내것 사이라 남 말풍선의 흔들림으로 본다.
         assertFalse(SenderClassifier.isClearlyOwnMessage(screenWidth = 1344, left = 360, right = 1290))
     }
+
+    // 편집된 긴 내 말풍선: '수정됨' 라벨만큼 left가 넓어져 0.30 밑(0.26)으로 내려와도 내 것.
+    @Test fun editedLongOwnMessageIsOwn() {
+        assertFalse(SenderClassifier.isClearlyOwnMessage(screenWidth = 1344, left = 350, right = 1287))
+        assertTrue(SenderClassifier.isClearlyOwnMessage(screenWidth = 1344, left = 350, right = 1287, edited = true))
+    }
+
+    // 편집돼도 거터(0.14)에서 시작하는 남 말풍선은 우측 끝에 닿아도 남의 것.
+    @Test fun editedOtherMessageFromGutterIsNotOwn() {
+        assertFalse(SenderClassifier.isClearlyOwnMessage(screenWidth = 1344, left = 192, right = 1290, edited = true))
+    }
 }

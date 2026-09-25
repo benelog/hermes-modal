@@ -15,13 +15,14 @@ package net.benelog.kakaocollector
  */
 object FrameAssembler {
 
-    /** PASS 1에서 모은 메시지 후보(본문 + 말풍선 좌표). */
+    /** PASS 1에서 모은 메시지 후보(라벨 뗀 본문 + 말풍선 좌표 + 편집 라벨 여부). */
     data class Bubble(
         val text: String,
         val left: Int,
         val right: Int,
         val top: Int,
         val bottom: Int,
+        val edited: Boolean = false,
     )
 
     /** 한 프레임의 원시 관찰값(PASS 1 결과). screenWidth는 말풍선 bounds와 같은 좌표계. */
@@ -60,17 +61,24 @@ object FrameAssembler {
                 date = dates[i],
                 sentTime = sentTimes[i],
                 sender = SenderAssigner.assign(
-                    snapshot.screenWidth, b.left, b.right, b.top, ownName, snapshot.nicknames,
+                    snapshot.screenWidth, b.left, b.right, b.top, ownName, snapshot.nicknames, b.edited,
                 ),
                 top = b.top,
                 bottom = b.bottom,
             )
         }
-        val minDate = BackfillPlanner.minDate(
-            snapshot.dateMarkers.minOfOrNull { it.date } ?: "",
-            dates.filter { it.isNotEmpty() }.minOrNull() ?: "",
-        )
+        val minDate = (snapshot.dateMarkers.map { it.date } + dates).fold("", KnownValue::earliest)
         val signature = bubbles.firstOrNull()?.let { "${it.top}#${it.text}" } ?: "empty"
         return AssembledFrame(messages, minDate, signature)
     }
+
+    /**
+     * 두 스냅샷의 말풍선·닉네임 배치(본문+좌표)가 같은가 — 수집 전 '화면 정지' 확인용.
+     * 보낸이(내/남 정렬, 위쪽 닉네임)는 좌표로만 정하므로, 애니메이션 중 흔들리는 bounds를 읽으면
+     * 오귀속된다. 잠시 뒤 다시 읽어 같으면 정지한 화면으로 본다.
+     * 날짜/시각 마커는 비교하지 않는다: 스티키 날짜 뱃지는 스크롤이 멎으면 곧 사라지는 오버레이라
+     * 비교에 넣으면 정지한 화면도 '변함'으로 보고, 뱃지가 사라진 뒤 프레임만 남아 날짜를 잃는다.
+     */
+    fun sameGeometry(a: Snapshot, b: Snapshot): Boolean =
+        a.screenWidth == b.screenWidth && a.bubbles == b.bubbles && a.nicknames == b.nicknames
 }

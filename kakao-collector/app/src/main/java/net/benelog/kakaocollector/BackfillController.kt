@@ -38,6 +38,7 @@ object BackfillController {
     data class Frame(val minDate: String, val signature: String)
 
     private const val TAG = KakaoCollectorService.TAG
+    private const val SERVICE_LOST = "접근성 서비스 연결이 끊겼습니다"
 
     // 방 자동 진입: 1.2초마다 시도, 25초 지나면 수동 열기 대기(ARMED)로 전환, 5분 내 안 열면 포기.
     private const val NAV_TICK_MS = 1200L
@@ -89,8 +90,12 @@ object BackfillController {
 
     fun statusNow(): Status = status
 
-    fun isRunning(): Boolean =
-        phase == Phase.NAVIGATE || phase == Phase.ARMED || phase == Phase.SEEK || phase == Phase.COLLECT
+    fun isRunning(): Boolean = phase == Phase.NAVIGATE || phase == Phase.ARMED || isScrolling()
+
+    /** 스크롤 단계(SEEK/COLLECT) — 스와이프·프레임 판정이 도는 구간. */
+    private fun isScrolling(): Boolean = phase == Phase.SEEK || phase == Phase.COLLECT
+
+    private val targetRoom: String get() = request?.room ?: ""
 
     /** scrape가 이 방에서 '읽기만'(SEEK) 해야 하는가. */
     fun seekActive(room: String): Boolean = phase == Phase.SEEK && request?.room == room
@@ -126,7 +131,7 @@ object BackfillController {
 
     /** 서비스가 죽으면(꺼짐/재바인딩) 세션도 중단 — 유령 제스처 방지. */
     fun onServiceDisconnected() {
-        if (isRunning()) finish(Phase.FAILED, "접근성 서비스 연결이 끊겼습니다")
+        if (isRunning()) finish(Phase.FAILED, SERVICE_LOST)
     }
 
     // ── 서비스 훅(모두 main 스레드) ─────────────────────────────
@@ -148,7 +153,7 @@ object BackfillController {
             }
         } else if (!isTarget && inRoom) {
             inRoom = false
-            if (phase == Phase.SEEK || phase == Phase.COLLECT) {
+            if (isScrolling()) {
                 publish("대상 방을 벗어났습니다 — '${req.room}' 방을 다시 열면 이어서 진행")
             }
         }
@@ -157,18 +162,18 @@ object BackfillController {
     /** 스크롤 중 스티키 날짜 뱃지 관찰(설정 프레임 밖에서도 seek 종료 판정에 쓴다). */
     fun onDatePeek(date: String) {
         if (date.isEmpty() || !isRunning()) return
-        peekMinDate = BackfillPlanner.minDate(peekMinDate, date)
+        peekMinDate = KnownValue.earliest(peekMinDate, date)
     }
 
     /** settle scrape 한 프레임 완료. 스와이프에 대한 응답 프레임만 걸음 수로 계산. */
     fun onFrame(room: String, frame: Frame) {
         val req = request ?: return
         if (room != req.room) return
-        if (phase != Phase.SEEK && phase != Phase.COLLECT) return
+        if (!isScrolling()) return
         if (!awaitingFrame) return // 스와이프와 무관한 프레임(새 메시지 도착 등)
         awaitingFrame = false
         steps++
-        val minDate = BackfillPlanner.minDate(frame.minDate, peekMinDate)
+        val minDate = KnownValue.earliest(frame.minDate, peekMinDate)
         val stuck = if (frame.signature == lastSignature) {
             noteNoProgress()
         } else {
@@ -236,15 +241,15 @@ object BackfillController {
 
     private fun navTick(g: Int) {
         if (g != gen || phase != Phase.NAVIGATE) return
-        val svc = KakaoCollectorService.instance ?: run { finish(Phase.FAILED, "접근성 서비스 연결이 끊겼습니다"); return }
-        if (svc.inRoomNow(request?.room ?: "")) { onRoomState(request?.room ?: ""); return }
+        val svc = serviceOrFail() ?: return
+        if (svc.inRoomNow(targetRoom)) { onRoomState(targetRoom); return }
         if (System.currentTimeMillis() - startedAt > NAV_TIMEOUT_MS) {
             phase = Phase.ARMED
-            publish("방을 자동으로 열지 못했습니다 — 카카오톡에서 '${request?.room}' 방을 직접 열면 이어서 진행됩니다")
+            publish("방을 자동으로 열지 못했습니다 — 카카오톡에서 '$targetRoom' 방을 직접 열면 이어서 진행됩니다")
             handler.postDelayed({ if (g == gen && phase == Phase.ARMED) finish(Phase.FAILED, "방이 열리지 않아 종료(5분 초과)") }, ARMED_TIMEOUT_MS)
             return
         }
-        svc.tryOpenRoom(request?.room ?: "")
+        svc.tryOpenRoom(targetRoom)
         scheduleNavTick(g)
     }
 
@@ -271,17 +276,17 @@ object BackfillController {
     }
 
     private fun swipeTick(g: Int) {
-        if (g != gen || (phase != Phase.SEEK && phase != Phase.COLLECT)) return
+        if (g != gen || !isScrolling()) return
         if (System.currentTimeMillis() - startedAt > MAX_SESSION_MS) {
             finish(Phase.DONE, "시간 상한(40분) 도달 — 여기까지 수집")
             return
         }
-        val svc = KakaoCollectorService.instance ?: run { finish(Phase.FAILED, "접근성 서비스 연결이 끊겼습니다"); return }
+        val svc = serviceOrFail() ?: return
         // 제스처는 화면 최상위에 그대로 꽂힌다 — 대상 방이 아닌 화면(다른 앱/다른 방)에는
         // 절대 스와이프하지 않는다. 방을 벗어났으면 일시정지(재진입 시 onRoomState가 재개).
-        if (!svc.inRoomNow(request?.room ?: "")) {
+        if (!svc.inRoomNow(targetRoom)) {
             inRoom = false
-            publish("대상 방 화면이 아닙니다 — '${request?.room}' 방을 열면 이어서 진행")
+            publish("대상 방 화면이 아닙니다 — '$targetRoom' 방을 열면 이어서 진행")
             return
         }
         peekMinDate = ""
@@ -296,12 +301,7 @@ object BackfillController {
             svc.performSwipe(downward = older, distanceRatio = ratio, durationMs = durMs)
         }
         if (!moved) {
-            awaitingFrame = false
-            if (noteNoProgress()) {
-                if (phase == Phase.SEEK) beginCollect("스크롤 실패 반복") else finish(Phase.DONE, "스크롤 실패 반복 — 여기까지 수집")
-            } else {
-                scheduleSwipe(g, pace())
-            }
+            onStepWithoutFrame(g, "스크롤 실패 반복")
             return
         }
         handler.postDelayed({ frameWatchdog(g, seq, forced = false) }, durMs + FRAME_TIMEOUT_MS)
@@ -309,21 +309,32 @@ object BackfillController {
 
     /** 스와이프 후 settle 프레임이 안 오면 강제 scrape 1회 → 그래도 없으면 진행 없음으로 취급. */
     private fun frameWatchdog(g: Int, seq: Int, forced: Boolean) {
-        if (g != gen || seq != swipeSeq || !awaitingFrame) return
-        if (phase != Phase.SEEK && phase != Phase.COLLECT) return
+        if (g != gen || seq != swipeSeq || !awaitingFrame || !isScrolling()) return
         val svc = KakaoCollectorService.instance ?: return
         if (!forced) {
             svc.forceScrape()
             handler.postDelayed({ frameWatchdog(g, seq, forced = true) }, FORCED_FRAME_TIMEOUT_MS)
             return
         }
+        onStepWithoutFrame(g, "프레임 없음 반복")
+    }
+
+    /**
+     * 이번 걸음이 프레임 없이 끝남(스크롤 실패/프레임 미도착) → 진행 없음 1회. 한계면 단계를 끝내고
+     * (SEEK → 여기서부터 수집, COLLECT → 여기까지 수집) 아니면 다음 걸음.
+     */
+    private fun onStepWithoutFrame(g: Int, reason: String) {
         awaitingFrame = false
-        if (noteNoProgress()) {
-            if (phase == Phase.SEEK) beginCollect("프레임 없음 반복") else finish(Phase.DONE, "프레임 없음 반복 — 여기까지 수집")
-        } else {
-            scheduleSwipe(g, pace())
+        when {
+            !noteNoProgress() -> scheduleSwipe(g, pace())
+            phase == Phase.SEEK -> beginCollect(reason)
+            else -> finish(Phase.DONE, "$reason — 여기까지 수집")
         }
     }
+
+    /** 살아있는 서비스, 없으면 세션을 실패로 끝내고 null. */
+    private fun serviceOrFail(): KakaoCollectorService? =
+        KakaoCollectorService.instance ?: run { finish(Phase.FAILED, SERVICE_LOST); null }
 
     private fun finish(endPhase: Phase, message: String) {
         gen++ // 남은 지연 콜백 전부 무효화
@@ -353,6 +364,6 @@ object BackfillController {
     }
 
     private fun publish(message: String) {
-        status = Status(phase, request?.room ?: "", message, steps, inserted, updated)
+        status = Status(phase, targetRoom, message, steps, inserted, updated)
     }
 }

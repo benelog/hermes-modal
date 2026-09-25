@@ -1,7 +1,9 @@
 package net.benelog.kakaocollector
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameAssemblerTest {
@@ -94,5 +96,29 @@ class FrameAssemblerTest {
             timeMarkers = listOf(TimeAssigner.Marker(top = 320, time = "15:01")),
         )
         assertEquals("15:01", FrameAssembler.assemble(snapshot, ownName = "나").messages.single().sentTime)
+    }
+
+    private fun snapshot(vararg bubbles: FrameAssembler.Bubble, dates: List<DateAssigner.Marker> = emptyList()) =
+        FrameAssembler.Snapshot(
+            screenWidth = screenW,
+            bubbles = bubbles.toList(),
+            nicknames = listOf(SenderAssigner.NickMarker(top = 250, name = "친구")),
+            dateMarkers = dates,
+            timeMarkers = emptyList(),
+        )
+
+    // 정지 확인: 같은 배치면 정지, 말풍선이 몇 px라도 움직였으면(애니메이션 중) 아직 흔들리는 화면.
+    @Test fun sameGeometryDetectsMovingBubbles() {
+        val a = snapshot(bubble("메시지", top = 300))
+        assertTrue(FrameAssembler.sameGeometry(a, snapshot(bubble("메시지", top = 300))))
+        assertFalse(FrameAssembler.sameGeometry(a, snapshot(bubble("메시지", top = 296))))
+        // 삽입 애니메이션 중 left가 흔들린 프레임(내 말풍선처럼 보임)도 '다름'.
+        assertFalse(FrameAssembler.sameGeometry(a, snapshot(bubble("메시지", top = 300, own = true))))
+    }
+
+    // 스티키 날짜 뱃지는 곧 사라지는 오버레이라 정지 판정에 넣지 않는다(넣으면 날짜 있는 프레임을 버리게 됨).
+    @Test fun sameGeometryIgnoresTransientDateBadge() {
+        val withBadge = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-07-01")))
+        assertTrue(FrameAssembler.sameGeometry(withBadge, snapshot(bubble("메시지", top = 300))))
     }
 }

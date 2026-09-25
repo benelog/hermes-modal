@@ -14,10 +14,14 @@ import java.util.concurrent.Executors
  * 중복 수신을 걸러주므로 드물게 이중 전송돼도 무해하다.
  */
 object Uploader {
-    // flush 재시도 정책: 최소 간격(활발한 수집 중 과도한 재시도 방지), 대상 시간창(오래된 행을
-    // 지금 올리면 received_at=now로 들어가 요약에 옛 대화가 새 것처럼 섞인다 → 48시간로 제한), 회차당 상한.
+    /**
+     * 미전송 재시도 대상 시간창. 오래된 행을 지금 올리면 received_at=now로 들어가 요약에 옛 대화가
+     * 새 것처럼 섞인다 → 48시간으로 제한. 전송 검증([MessageStore.unsentCountInRange])도 같은 창을 쓴다.
+     */
+    const val RETRY_WINDOW_MS = 48L * 60 * 60 * 1000
+
+    // flush 재시도 정책: 최소 간격(활발한 수집 중 과도한 재시도 방지), 회차당 상한.
     private const val FLUSH_MIN_INTERVAL_MS = 60_000L
-    private const val FLUSH_WINDOW_MS = 48L * 60 * 60 * 1000
     private const val FLUSH_BATCH = 50
 
     private val exec = Executors.newSingleThreadExecutor()
@@ -28,17 +32,12 @@ object Uploader {
     fun init(context: Context, retentionMillis: Long) {
         if (!::store.isInitialized) store = MessageStore(context.applicationContext)
         val cutoff = System.currentTimeMillis() - retentionMillis
-        exec.execute {
-            try {
-                store.prune(cutoff)
-                flushPending(force = true)
-            } catch (e: Exception) {
-                Log.w(KakaoCollectorService.TAG, "uploader init flush failed: ${e.message}")
-            }
+        runLogged("init flush") {
+            store.prune(cutoff)
+            flushPending(force = true)
         }
     }
 
-    /** 인메모리 seen 시드용 — 최근 키. init 이후 호출. */
     /**
      * store만 준비한다(정리·재전송 없음). [init]은 접근성 서비스가 붙을 때만 불리므로,
      * 서비스가 꺼진 상태에서도 화면에서 건수 비교를 돌릴 수 있게 하는 진입점이다.
@@ -47,6 +46,7 @@ object Uploader {
         if (!::store.isInitialized) store = MessageStore(context.applicationContext)
     }
 
+    /** 인메모리 seen 시드용 — 최근 키. [init] 이후 호출. */
     fun recentKeys(limit: Int): Set<String> =
         if (::store.isInitialized) store.recentKeys(limit) else emptySet()
 
@@ -67,26 +67,21 @@ object Uploader {
         repostOnSkip: Boolean = false,
         onOutcome: ((MessageStore.Outcome) -> Unit)? = null,
     ) {
-        exec.execute {
-            try {
-                val r = store.recordOrMerge(record, System.currentTimeMillis(), fromScroll)
-                onOutcome?.invoke(r.outcome)
-                if (r.outcome == MessageStore.Outcome.SKIPPED) {
-                    // 어느 행에 합쳐졌는지 모르므로 markSent 없이 들어온 값 그대로 재전송만 한다.
-                    if (repostOnSkip) ModalApi.ingest(record)
-                    return@execute
-                }
-                // 병합 후 DB에 남은 값(r.*)을 보낸다 — 서버 저장소가 폰 DB와 같은 상태로 수렴.
-                val ok = ModalApi.ingest(
-                    record.copy(text = r.text, clientTime = r.clientTime, sentTime = r.sentTime),
-                )
-                if (ok) {
-                    store.markSent(r.rowId)
-                    flushPending() // 방금 성공 = 네트워크 정상 → 밀린 미전송분도 이 기회에 재시도
-                }
-            } catch (e: Exception) {
-                // 예외로 executor 스레드가 조용히 죽지 않게(다음 제출은 계속). 실패분은 flush가 재시도.
-                Log.w(KakaoCollectorService.TAG, "uploader submit failed: ${e.message}")
+        runLogged("submit") {
+            val r = store.recordOrMerge(record, System.currentTimeMillis(), fromScroll)
+            onOutcome?.invoke(r.outcome)
+            if (r.outcome == MessageStore.Outcome.SKIPPED) {
+                // 어느 행에 합쳐졌는지 모르므로 markSent 없이 들어온 값 그대로 재전송만 한다.
+                if (repostOnSkip) ModalApi.ingest(record)
+                return@runLogged
+            }
+            // 병합 후 DB에 남은 값(r.*)을 보낸다 — 서버 저장소가 폰 DB와 같은 상태로 수렴.
+            val ok = ModalApi.ingest(
+                record.copy(text = r.text, clientTime = r.clientTime, sentTime = r.sentTime),
+            )
+            if (ok) {
+                store.markSent(r.rowId)
+                flushPending() // 방금 성공 = 네트워크 정상 → 밀린 미전송분도 이 기회에 재시도
             }
         }
     }
@@ -94,11 +89,19 @@ object Uploader {
     /** 미전송분 재시도 요청(비동기). 대상 방 입장 등 '활동 재개' 시점에 호출. */
     fun flushUnsent() {
         if (!::store.isInitialized) return
+        runLogged("flush") { flushPending() }
+    }
+
+    /**
+     * 작업을 단일 백그라운드 스레드에 넣는다. 예외로 executor 스레드가 조용히 죽지 않게
+     * 로그만 남기고 삼킨다(다음 작업은 계속 — 전송 실패분은 flush가 재시도).
+     */
+    private fun runLogged(what: String, block: () -> Unit) {
         exec.execute {
             try {
-                flushPending()
+                block()
             } catch (e: Exception) {
-                Log.w(KakaoCollectorService.TAG, "uploader flush failed: ${e.message}")
+                Log.w(KakaoCollectorService.TAG, "uploader $what failed: ${e.message}")
             }
         }
     }
@@ -108,7 +111,7 @@ object Uploader {
         val now = System.currentTimeMillis()
         if (!force && now - lastFlushAt < FLUSH_MIN_INTERVAL_MS) return
         lastFlushAt = now
-        val rows = store.unsentRows(now - FLUSH_WINDOW_MS, FLUSH_BATCH)
+        val rows = store.unsentRows(now - RETRY_WINDOW_MS, FLUSH_BATCH)
         var sent = 0
         for (row in rows) {
             if (!ModalApi.ingest(row.record)) break
@@ -124,12 +127,12 @@ object Uploader {
     }
 
     /**
-     * 백필 후 전송 무결성 검증: 미전송분을 먼저 밀어낸 뒤(flush) 로컬 SQLite의 발신일별
+     * 전송 무결성 검증: 미전송분을 먼저 밀어낸 뒤(flush) 로컬 SQLite의 발신일별
      * 건수(중복제거 키 기준)와 서버 kakao-stats 의 발신일별 건수를 비교한다([TransferCheck]).
      * exec 는 FIFO 단일 스레드라, 백필 중 큐에 쌓인 제출이 모두 처리된 '뒤에' 실행된다 —
      * 즉 비교 시점의 로컬/서버 상태가 최종본이다. [onResult]는 백그라운드 스레드에서 불린다.
+     * [ensureStore] 또는 [init] 이후 호출.
      */
-    /** 로컬(발신일별 중복제거 건수) vs 서버(kakao-stats) 대조. [ensureStore] 또는 [init] 이후 호출. */
     fun verifyTransfer(room: String, start: String, end: String, onResult: (TransferCheck.Report) -> Unit) {
         if (!::store.isInitialized) {
             val msg = "전송 검증 ✖ 로컬 저장소 준비 안 됨"

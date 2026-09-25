@@ -81,4 +81,14 @@ class SenderAssignerTest {
         assertTrue(SenderAssigner.isReplyLabel("이중윤_전기전자(기전4)97에게 답장"))
         assertFalse(SenderAssigner.isReplyLabel("이효정_인문(영문 국문)_97"))
     }
+
+    // 편집창 헤더("메시지 수정") 바로 아래 말풍선은 편집 중인 원문 미리보기 → 수집 안 함.
+    @Test fun editComposerPreviewIsSkipped() {
+        assertNull(
+            SenderAssigner.assign(
+                screenW = 1344, left = 192, right = 1018, top = 2400,
+                ownName = "정상혁", nicks = listOf(nick(700, "이중윤"), nick(2350, "메시지 수정")),
+            ),
+        )
+    }
 }

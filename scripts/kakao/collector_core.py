@@ -31,19 +31,23 @@ def message_key(room: str, text: str, client_time: str) -> str:
     return f"{room}|{digest}"
 
 
-_REPLY_PREFIX_RE = re.compile(r"^\s*답장 메시지\s+")
+# Leading UI labels KakaoTalk folds into the bubble's text: '답장 메시지 ' (reply) and
+# '수정됨 ' (edited). Either order / both may appear.
+_LABEL_PREFIX_RE = re.compile(r"^\s*(?:(?:답장 메시지|수정됨)\s+)+")
 _TRUNC_TAIL_RE = re.compile(r"(?:\.\.\.|…|더\s*보기)\s*$")
 
 
 def clean_text(text) -> str:
     """Normalize a scraped message body.
 
-    Strips KakaoTalk's reply-content prefix ('답장 메시지 …') and surrounding
-    whitespace. The body after the prefix is the actual reply text (verified
-    against the corpus: it is never a standalone quoted original), so we keep
-    it and drop only the label.
+    Strips KakaoTalk's reply-content prefix ('답장 메시지 …') and the edited
+    marker ('수정됨 …'), plus surrounding whitespace. The body after the reply
+    prefix is the actual reply text (verified against the corpus: it is never a
+    standalone quoted original), so we keep it and drop only the label. The
+    edited marker is only rendered on some scrapes of the same message, so
+    keeping it split one message into two keys (216 phone rows, 2026-09-26).
     """
-    return _REPLY_PREFIX_RE.sub("", text or "").strip()
+    return _LABEL_PREFIX_RE.sub("", text or "").strip()
 
 
 def _trunc_core(text) -> str:

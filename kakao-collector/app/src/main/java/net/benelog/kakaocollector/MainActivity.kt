@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etRoom: EditText
     private lateinit var cbAutoReply: CheckBox
     private lateinit var spBackfillRoom: Spinner
+    private lateinit var statusView: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -58,6 +59,7 @@ class MainActivity : AppCompatActivity() {
         etRoom = findViewById(R.id.etRoom)
         cbAutoReply = findViewById(R.id.cbAutoReply)
         spBackfillRoom = findViewById(R.id.spBackfillRoom)
+        statusView = findViewById(R.id.status)
 
         populateForm()
         setBackfillPreset(1)
@@ -89,17 +91,17 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnTest).setOnClickListener {
             saveForm() // 화면에 입력한 값으로 바로 테스트되도록 먼저 저장.
             Uploader.testPost(Settings.firstRoom(), "앱테스트", "전용앱 연결 테스트")
-            findViewById<TextView>(R.id.status).text =
+            statusView.text =
                 "테스트 메시지 전송함 → Modal /messages 로 확인하세요."
         }
         findViewById<Button>(R.id.btnSummaryTest).setOnClickListener {
             saveForm()
             val room = Settings.firstRoom()
-            findViewById<TextView>(R.id.status).text = "요약 생성 중… (Hermes 콜드스타트로 수십 초 걸릴 수 있음)"
+            statusView.text = "요약 생성 중… (Hermes 콜드스타트로 수십 초 걸릴 수 있음)"
             // 발신 경로와 분리: 결과를 방에 보내지 않고 앱에 표시만 한다(Modal/Hermes 경로 검증).
             ModalApi.requestSummary(room, "요약") { res ->
                 mainHandler.post {
-                    findViewById<TextView>(R.id.status).text = if (res.ok && res.summary.isNotBlank()) {
+                    statusView.text = if (res.ok && res.summary.isNotBlank()) {
                         "요약(테스트, $room · ${res.count}건):\n\n${res.summary}"
                     } else {
                         "요약 실패: ${res.error ?: "응답 없음"}"
@@ -111,7 +113,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        findViewById<TextView>(R.id.status).text =
+        statusView.text =
             if (isServiceEnabled()) "접근성 서비스: 켜짐 ✅" else "접근성 서비스: 꺼짐 — 아래 버튼으로 켜세요"
         refreshInfo() // 고급 설정에서 돌아올 때도 최신 값이 보이게.
         refreshBackfillRooms()
@@ -170,14 +172,27 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnBackfillTo).text = "끝 ${rangeFmt.format(toCal.time)}"
     }
 
-    private fun startBackfill() {
-        saveForm() // 화면의 방 목록으로 바로 수집되도록 먼저 저장.
+    /**
+     * 백필/건수 비교 공통 입력 확인: 화면의 방 목록을 먼저 저장해 바로 반영하고, 선택된 방과
+     * 기간(시작 < 끝)이 유효하면 그 방을 돌려준다. 아니면 토스트로 알리고 null.
+     */
+    private fun selectedBackfillRoom(): String? {
+        saveForm()
         refreshBackfillRooms()
         val room = spBackfillRoom.selectedItem as? String
         if (room.isNullOrBlank()) {
             Toast.makeText(this, "대상 방을 먼저 설정하세요", Toast.LENGTH_SHORT).show()
-            return
+            return null
         }
+        if (fromCal.timeInMillis >= toCal.timeInMillis) {
+            Toast.makeText(this, "시작 시점이 끝 시점보다 앞서야 합니다", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        return room
+    }
+
+    private fun startBackfill() {
+        val room = selectedBackfillRoom() ?: return
         if (!isServiceEnabled()) {
             Toast.makeText(this, "접근성 서비스가 꺼져 있습니다 — 켠 뒤 다시 시작하세요", Toast.LENGTH_LONG).show()
             startActivity(Intent(AndroidSettings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -186,10 +201,6 @@ class MainActivity : AppCompatActivity() {
         if (KakaoCollectorService.instance == null) {
             // 토글은 켜져 있는데 아직 바인딩 전(방금 켠 직후 등) — 재시도 안내.
             Toast.makeText(this, "접근성 서비스 연결 대기 중 — 잠시 후 다시 눌러주세요", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (fromCal.timeInMillis >= toCal.timeInMillis) {
-            Toast.makeText(this, "시작 시점이 끝 시점보다 앞서야 합니다", Toast.LENGTH_SHORT).show()
             return
         }
         val err = BackfillController.start(
@@ -215,21 +226,10 @@ class MainActivity : AppCompatActivity() {
      * 백필 종료 시의 자동 검증과 같은 경로([Uploader.verifyTransfer])를 쓰되, 카카오톡을 열지 않는다.
      */
     private fun verifyCounts() {
-        saveForm() // 화면에서 고친 방 목록이 바로 반영되도록.
-        refreshBackfillRooms()
-        val room = spBackfillRoom.selectedItem as? String
-        if (room.isNullOrBlank()) {
-            Toast.makeText(this, "대상 방을 먼저 설정하세요", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (fromCal.timeInMillis >= toCal.timeInMillis) {
-            Toast.makeText(this, "시작 시점이 끝 시점보다 앞서야 합니다", Toast.LENGTH_SHORT).show()
-            return
-        }
+        val room = selectedBackfillRoom() ?: return
         val start = KakaoDate.isoOf(fromCal.timeInMillis)
         val end = KakaoDate.isoOf(toCal.timeInMillis)
         // backfillStatus 는 700ms 틱이 계속 다시 그리므로 결과는 status 에 쓴다.
-        val statusView = findViewById<TextView>(R.id.status)
         statusView.text = "건수 비교 중… ($room $start~$end)"
         Uploader.verifyTransfer(room, start, end) { report ->
             mainHandler.post {

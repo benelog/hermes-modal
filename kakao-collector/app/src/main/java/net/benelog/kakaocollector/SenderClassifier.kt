@@ -18,14 +18,19 @@ package net.benelog.kakaocollector
 object SenderClassifier {
     // 거터(0.14)보다 충분히 높고 가장 긴 내 메시지(0.34~0.40)는 안 자르는 좌측 임계.
     private const val OWN_LEFT_MIN_RATIO = 0.30f
+    // 편집된 말풍선은 '수정됨' 라벨이 본문 노드에 합쳐져 bounds가 라벨만큼 좌측으로 넓어진다 —
+    // 긴 내 메시지가 0.30 밑으로 내려가 남의 것(위쪽 닉네임)으로 오귀속됐다(2026-09-26 폰 DB).
+    // 남 말풍선은 편집돼도 거터(0.14)에서 시작하므로 그보다 확실히 우측이면 충분하다.
+    private const val EDITED_OWN_LEFT_MIN_RATIO = 0.20f
     // 내 말풍선이 우측 끝에 밀착했다고 볼 우측여백 상한(실측 rm≈0.04, 여유 두어 0.12).
     private const val OWN_RIGHT_MARGIN_MAX_RATIO = 0.12f
 
-    fun isClearlyOwnMessage(screenWidth: Int, left: Int, right: Int): Boolean {
+    fun isClearlyOwnMessage(screenWidth: Int, left: Int, right: Int, edited: Boolean = false): Boolean {
         if (screenWidth <= 0 || right <= left) return false
         val leftMargin = left
         val rightMargin = screenWidth - right
-        val startsWellRight = leftMargin >= (screenWidth * OWN_LEFT_MIN_RATIO).toInt()
+        val leftMinRatio = if (edited) EDITED_OWN_LEFT_MIN_RATIO else OWN_LEFT_MIN_RATIO
+        val startsWellRight = leftMargin >= (screenWidth * leftMinRatio).toInt()
         val hugsRightEdge = rightMargin <= (screenWidth * OWN_RIGHT_MARGIN_MAX_RATIO).toInt()
         return startsWellRight && hugsRightEdge
     }

@@ -83,12 +83,24 @@ class MergePolicyTest {
         )
     }
 
-    // 실시간 수집은 가드 제외 — 자정 전후로 정말 두 번 보낸 메시지는 각각 남는다.
-    @Test fun liveCollectionAtAdjacentDayIsNotDropped() {
+    // 실시간 수집도 방금(10분 내) 저장한 행의 인접일 사본은 오부여로 본다(2026-09-26 실측 5초~9분 간격 분할).
+    @Test fun liveRescrapeAtAdjacentDayWithinMinutesIsDropped() {
+        assertEquals(
+            MergePolicy.Decision.Skip,
+            MergePolicy.decide(
+                existing("같은 본문", clientTime = "2026-07-01", collectedAt = now - 60_000),
+                incoming("같은 본문", clientTime = "2026-07-02"),
+                now, fromScroll = false,
+            ),
+        )
+    }
+
+    // 실시간 수집의 시간창은 좁다 — 자정 전후로 정말 두 번 보낸 메시지는 각각 남는다.
+    @Test fun liveCollectionAtAdjacentDayOutsideWindowIsNotDropped() {
         assertEquals(
             MergePolicy.Decision.NoMatch,
             MergePolicy.decide(
-                existing("같은 본문", clientTime = "2026-07-01", collectedAt = now - 60_000),
+                existing("같은 본문", clientTime = "2026-07-01", collectedAt = now - 30L * 60 * 1000),
                 incoming("같은 본문", clientTime = "2026-07-02"),
                 now, fromScroll = false,
             ),

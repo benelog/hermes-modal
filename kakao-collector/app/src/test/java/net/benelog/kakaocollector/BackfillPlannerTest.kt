@@ -1,6 +1,5 @@
 package net.benelog.kakaocollector
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,12 +18,5 @@ class BackfillPlannerTest {
         assertTrue(BackfillPlanner.collectDone("2026-07-13", "2026-07-12"))
         assertFalse(BackfillPlanner.collectDone("2026-07-12", "2026-07-12")) // 당일 포함
         assertFalse(BackfillPlanner.collectDone("", "2026-07-12")) // 미상이면 계속
-    }
-
-    @Test fun minDateHandlesBlanks() {
-        assertEquals("2026-07-09", BackfillPlanner.minDate("2026-07-09", "2026-07-10"))
-        assertEquals("2026-07-09", BackfillPlanner.minDate("", "2026-07-09"))
-        assertEquals("2026-07-09", BackfillPlanner.minDate("2026-07-09", ""))
-        assertEquals("", BackfillPlanner.minDate("", ""))
     }
 }

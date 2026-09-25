@@ -17,6 +17,9 @@ Decisions built on these facts: see [decisions.md](decisions.md).
 - Nickname appears only on the FIRST bubble of a consecutive same-sender run; later bubbles have no sender node. Attributing them to "the last nickname seen" mis-attributes when the run's head scrolled off-screen (this was the dominant 오수집 cause).
 - Reply bubbles: `nickname` = the real replier; `message` text = `답장 메시지 {reply body}` (prefix strips to the true reply; body is never the quoted original); the quoted original lives in separate `source_nickname`/`source_message` nodes (id ≠ `message`, so not collected).
 - Own bubbles carry no nickname/profile node. Geometry separates own vs others: others' bubbles start at left ratio ≈0.14; own at ≥0.34. During fast scroll, node bounds are UNSTABLE → geometry misfires; a settle-debounce (collect ~250ms after scroll stops) reduces but does not eliminate them.
+- Edited messages: the `message` node's text starts with `수정됨 ` (label folded into the node, widening its bounds); editing your own message shows a composer whose header is a `nickname`-id node reading `메시지 수정` above a `message`-id preview of the original (both scraped as a fake bubble before 2026-09-26).
+- `id/time` (minute clock) was never populated: 0 of 6729 phone rows had `sent_time` (audit 2026-09-26, Kakao up to 26.8.2) — the node is absent from the a11y tree on this build.
+- Long messages: the a11y text caps at ~500 chars + `…` (전체보기 case); the full body is never exposed (31 rows at 497–501 chars).
 - Resource ids (message/nickname/time/title/input/send) are version-dependent; must be re-calibrated after KakaoTalk updates (CALIBRATE mode dumps node ids to logcat).
 
 ## Android platform behaviors that silently kill collection

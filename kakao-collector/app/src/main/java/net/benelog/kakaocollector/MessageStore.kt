@@ -2,6 +2,7 @@ package net.benelog.kakaocollector
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
@@ -16,10 +17,21 @@ import android.database.sqlite.SQLiteOpenHelper
  *
  * sent_time(HH:MM, 발신 시각)은 dedupe 키가 **아니다** — 시각 결합도 좌표 휴리스틱이라
  * 키에 넣으면 sender 때처럼 행이 갈라진다. 대신 같은 행의 누락 필드로 취급해, 재수집에서
- * 시각이 잡히면 제자리 승급(빈값→시각)하고 이미 있으면 더 이른 값([KakaoTime.earliest])을 남긴다.
+ * 시각이 잡히면 제자리 승급(빈값→시각)하고 이미 있으면 더 이른 값([KnownValue.earliest])을 남긴다.
  */
 class MessageStore(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "collector.db", null, 3) {
+    SQLiteOpenHelper(context.applicationContext, "collector.db", null, 4) {
+
+    companion object {
+        // 최근 창 병합 스캔 범위: 백필(며칠치 한 번에)에서도 같은 메시지의 빈 날짜/시각 행을
+        // 찾아 제자리 승급할 수 있게.
+        private const val RECENT_SCAN_ROWS = 1000
+        // 창 밖(옛 행) 정확일치 조회 대상 최소 길이. 짧은 말("ㅋㅋ", "감사합니다")은 진짜 반복이
+        // 흔해 옛 행과 합치면 새 메시지를 잃는다 — 잘림 병합([KakaoText.isExtendedBy])과 같은 확신 기준.
+        private const val OLD_EXACT_MATCH_MIN_LEN = 12
+        private const val OLD_EXACT_MATCH_ROWS = 20
+        private val MERGE_COLUMNS = arrayOf("_id", "text", "client_time", "sent_time", "collected_at")
+    }
 
     enum class Outcome { INSERTED, UPDATED, SKIPPED }
 
@@ -47,6 +59,12 @@ class MessageStore(context: Context) :
         )
         // prune(collected_at < ?) 의 보관기간 정리가 풀스캔하지 않도록 인덱스.
         db.execSQL("CREATE INDEX idx_messages_collected_at ON messages(collected_at)")
+        createRoomTextIndex(db)
+    }
+
+    /** 창 밖 옛 행의 정확일치 조회([recordOrMerge])용. */
+    private fun createRoomTextIndex(db: SQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_messages_room_text ON messages(room, text)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -56,6 +74,7 @@ class MessageStore(context: Context) :
         if (oldVersion < 3) {
             db.execSQL("ALTER TABLE messages ADD COLUMN sent_time TEXT NOT NULL DEFAULT ''")
         }
+        if (oldVersion < 4) createRoomTextIndex(db)
     }
 
     /**
@@ -63,27 +82,28 @@ class MessageStore(context: Context) :
      * 첫 매칭에 따라 in-place 갱신(UPDATED)/버림(SKIPPED)하고, 매칭이 없으면 새 행
      * INSERT(정확중복이면 UNIQUE로 무시 → SKIPPED). [fromScroll]은 스크롤 settle 수집
      * 여부 — [MergePolicy]의 날짜 경계 가드용.
+     *
+     * 최근 창에서 못 찾은 충분히 긴 본문은 창 밖 옛 행도 정확일치로 찾는다: 옛 메시지를 스크롤로
+     * 다시 보며 날짜를 못 잡으면(빈 날짜) 키가 달라 새 행으로 들어가고, 서버엔 received_at=지금인
+     * '새 메시지'로 올라가 요약을 오염시켰다(2026-09-26 폰 DB 27건, 수 주 뒤 재삽입).
      */
     fun recordOrMerge(record: MessageRecord, nowMillis: Long, fromScroll: Boolean = false): Result {
         val db = writableDatabase
-        var decision: MergePolicy.Decision = MergePolicy.Decision.NoMatch
-        db.query(
-            "messages", arrayOf("_id", "text", "client_time", "sent_time", "collected_at"),
-            // 스캔 범위 1000행: 백필(며칠치 한 번에)에서도 같은 메시지의 빈 날짜/시각 행을
-            // 찾아 제자리 승급할 수 있게. 이 밖의 행은 UNIQUE 백스톱 + 서버 병합이 거른다.
-            "room=?", arrayOf(record.room), null, null, "_id DESC", "1000",
-        ).use { c ->
-            while (c.moveToNext()) {
-                val existing = MergePolicy.ExistingRow(
-                    id = c.getLong(0),
-                    text = c.getString(1) ?: "",
-                    clientTime = c.getString(2) ?: "",
-                    sentTime = c.getString(3) ?: "",
-                    collectedAt = c.getLong(4),
-                )
-                decision = MergePolicy.decide(existing, record, nowMillis, fromScroll)
-                if (decision != MergePolicy.Decision.NoMatch) break
-            }
+        var decision = firstDecision(
+            db.query(
+                "messages", MERGE_COLUMNS, "room=?", arrayOf(record.room),
+                null, null, "_id DESC", RECENT_SCAN_ROWS.toString(),
+            ),
+            record, nowMillis, fromScroll,
+        )
+        if (decision == MergePolicy.Decision.NoMatch && record.text.length >= OLD_EXACT_MATCH_MIN_LEN) {
+            decision = firstDecision(
+                db.query(
+                    "messages", MERGE_COLUMNS, "room=? AND text=?", arrayOf(record.room, record.text),
+                    null, null, "_id DESC", OLD_EXACT_MATCH_ROWS.toString(),
+                ),
+                record, nowMillis, fromScroll,
+            )
         }
         when (val d = decision) {
             is MergePolicy.Decision.Update -> {
@@ -109,6 +129,29 @@ class MessageStore(context: Context) :
         } else {
             Result(Outcome.SKIPPED, -1)
         }
+    }
+
+    /** 커서의 행들([MERGE_COLUMNS])을 차례로 [MergePolicy.decide] — 첫 매칭 결정(없으면 NoMatch). */
+    private fun firstDecision(
+        cursor: Cursor,
+        record: MessageRecord,
+        nowMillis: Long,
+        fromScroll: Boolean,
+    ): MergePolicy.Decision {
+        cursor.use { c ->
+            while (c.moveToNext()) {
+                val existing = MergePolicy.ExistingRow(
+                    id = c.getLong(0),
+                    text = c.getString(1) ?: "",
+                    clientTime = c.getString(2) ?: "",
+                    sentTime = c.getString(3) ?: "",
+                    collectedAt = c.getLong(4),
+                )
+                val decision = MergePolicy.decide(existing, record, nowMillis, fromScroll)
+                if (decision != MergePolicy.Decision.NoMatch) return decision
+            }
+        }
+        return MergePolicy.Decision.NoMatch
     }
 
     /** 기존 행을 더 완전한 본문/날짜/시각으로 in-place 갱신(순서 보존). 재전송 위해 sent_ok 초기화. */
@@ -183,7 +226,7 @@ class MessageStore(context: Context) :
      * 무관한데 방 전체를 세면 검증이 매번 헛경보를 낸다(2026-07-13 실측: 172건).
      */
     fun unsentCountInRange(room: String, start: String, end: String, nowMillis: Long): Int {
-        val recentCutoff = nowMillis - 48L * 60 * 60 * 1000
+        val recentCutoff = nowMillis - Uploader.RETRY_WINDOW_MS
         readableDatabase.rawQuery(
             "SELECT COUNT(*) FROM messages WHERE room=? AND sent_ok=0 AND " +
                 "((client_time<>'' AND client_time>=? AND client_time<=?) OR " +

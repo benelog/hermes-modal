@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -40,9 +41,13 @@ class KakaoCollectorService : AccessibilityService() {
         var instance: KakaoCollectorService? = null
             private set
 
-        private const val MIN_INTERVAL_MS = 500L
-        // 스크롤이 멈춘 뒤 이 시간만큼 지나면 수집(스크롤 중 흔들리는 좌표로 오정렬하는 것 방지).
-        private const val SCROLL_SETTLE_MS = 250L
+        // 이벤트가 이 시간만큼 멎으면 수집 시작(스크롤·삽입 중 흔들리는 좌표로 오정렬하는 것 방지).
+        private const val SETTLE_MS = 250L
+        // 새 메시지(CONTENT_CHANGED)가 계속 와도 첫 이벤트부터 이 시간 안엔 수집 시작(무한 연기 방지).
+        private const val CONTENT_MAX_WAIT_MS = 750L
+        // 화면 정지 확인: 이 간격으로 다시 읽어 말풍선·닉네임 배치가 같아야 수집. 최대 재확인 횟수.
+        private const val STABLE_RECHECK_MS = 150L
+        private const val MAX_STABLE_CHECKS = 4
         private const val SEEN_CAP = 3000
         private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30일
         // 요약문 발신: 텍스트 입력 후 카톡이 전송 버튼을 활성화할 시간을 준다.
@@ -57,7 +62,6 @@ class KakaoCollectorService : AccessibilityService() {
     // 백필 COLLECT 세션에서 '이미 제출한 키'(장기 seen과 별개) — 겹치는 프레임의 같은 메시지를
     // 세션당 1회만 제출/재전송하기 위한 것. 세션(COLLECT 단계) 시작 때 비운다.
     private val backfillSubmitted = HashSet<String>()
-    private var lastRun = 0L
 
     // 카톡은 방 제목 노드를 '방을 열 때'만 트리에 노출하고 스크롤 중엔 빼버린다.
     // 그래서 매번 제목으로 판별하면 스크롤 중 수집이 끊긴다 → 방 입장 여부를 래치로 기억한다.
@@ -65,19 +69,15 @@ class KakaoCollectorService : AccessibilityService() {
     private var activeRoom = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    // 스크롤이 멈춘 뒤 한 번 수집한다 — 스크롤 중 프레임은 말풍선 bounds가 흔들려 내/남 정렬 오판 위험.
-    // fromScroll=true: 스크롤(백필) 수집은 날짜 경계 오부여 가드([MergePolicy]) 대상.
-    private val settleRunnable = Runnable {
-        lastRun = System.currentTimeMillis()
-        identifyRoomAndScrape(allowTrigger = false, fromScroll = true)
-    }
-    // 새 메시지 도착(CONTENT_CHANGED)도 삽입+하단 스크롤 애니메이션으로 bounds가 흔들리므로
-    // 즉시 수집하지 않고 settle 후 1회 수집한다(스크롤과 동일 이유 — 내/남 오정렬=오수집 방지).
-    // 트리거는 허용(멘션 요약은 settle 직후 발화; +250ms 지연은 무방).
-    private val contentSettleRunnable = Runnable {
-        lastRun = System.currentTimeMillis()
-        identifyRoomAndScrape(allowTrigger = true)
-    }
+
+    // 이벤트 종류별 수집 레인([ScrapeLane]) — 모두 '멎은 뒤 + 화면 정지 확인' 후 1회 수집한다.
+    // 방 열기: 전환 애니메이션 중 좌표를 읽지 않도록 settle. 방을 '여는' 순간 맨 아래에 오래전
+    // 명령이 있어도 발화하지 않도록 트리거는 불허(수집만).
+    private val windowLane = ScrapeLane(allowTrigger = false, fromScroll = false)
+    // 새 메시지 도착: 삽입+하단 스크롤 애니메이션이 끝난 뒤 수집. 멘션 요약 트리거 허용.
+    private val contentLane = ScrapeLane(allowTrigger = true, fromScroll = false, maxWaitMs = CONTENT_MAX_WAIT_MS)
+    // 스크롤: 멈춘 뒤 수집. 트리거 불허(백필 재발화 방지), 날짜 경계 오부여 가드([MergePolicy]) 대상.
+    private val scrollLane = ScrapeLane(allowTrigger = false, fromScroll = true)
     // 방별 마지막 트리거 시각(쿨다운 — scrape·알림 경로의 중복/이중 발신 방지).
     private val lastTrigger = ConcurrentHashMap<String, Long>()
     // 처리한 알림 키(같은 알림이 여러 번 와도 1회만 트리거).
@@ -110,68 +110,169 @@ class KakaoCollectorService : AccessibilityService() {
         when (event.eventType) {
             // 카톡 알림: 방이 닫혀 있어도 멘션 요약 명령을 잡아 알림 '답장'으로 발신.
             AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> handleNotification(event)
-            // 화면 전환(방 열기)은 방 판별 기준점이라 레이트리밋 없이 처리. 단, 방을 '여는' 순간
-            // 맨 아래에 오래전 명령이 있어도 발화하지 않도록 트리거는 허용하지 않는다(수집만).
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> identifyRoomAndScrape(allowTrigger = false)
-            // 새 메시지 도착(CONTENT_CHANGED): 삽입/하단 스크롤 애니메이션이 끝난 뒤(settle) 수집한다.
-            // 즉시 수집하면 흔들리는 bounds로 남 말풍선을 내것으로 오판(오수집)한다. rate-limit으로
-            // anchor를 잡아(연속 변경에도 무한 연기 방지) settle 시각을 미뤄 애니메이션을 흘려보낸다.
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                val now = System.currentTimeMillis()
-                if (now - lastRun < MIN_INTERVAL_MS) return
-                lastRun = now
-                mainHandler.removeCallbacks(contentSettleRunnable)
-                mainHandler.postDelayed(contentSettleRunnable, SCROLL_SETTLE_MS)
+            // 화면 전환(방 열기)은 방 판별 기준점 — 방 판별(입장 래치·백필 통지)은 즉시, 수집은 settle 후.
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                rootInActiveWindow?.let { root ->
+                    try {
+                        identifyRoom(root)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "identify room error: ${e.message}")
+                    }
+                }
+                windowLane.onEvent()
             }
-            // 스크롤은 멈춘 뒤(settle) 한 번만 수집한다. 스크롤 중 프레임의 흔들리는 bounds로
-            // 남 메시지를 내 것으로 오판(→오수집)하는 것을 막는다. 트리거는 스크롤에선 불허(백필 재발화 방지).
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> contentLane.onEvent()
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 // 스티키 날짜 뱃지는 '스크롤 중'에만 트리에 뜬다 — 백필 진행 중이면 settle을
                 // 기다리지 않고 여기서 날짜만 읽어 seek/collect 종료 판정에 보탠다(수집은 안 함).
                 if (BackfillController.isRunning()) peekDatesForBackfill()
-                mainHandler.removeCallbacks(settleRunnable)
-                mainHandler.postDelayed(settleRunnable, SCROLL_SETTLE_MS)
+                scrollLane.onEvent()
             }
         }
     }
 
     override fun onInterrupt() {}
 
-    /** 현재 방을 판별(대상 방 입장/이탈 래치 갱신)한 뒤, 대상 방이면 [scrape]를 돌린다. */
-    private fun identifyRoomAndScrape(allowTrigger: Boolean, fromScroll: Boolean = false) {
-        val root = rootInActiveWindow ?: return
-        try {
-            if (Settings.calibrate) {
-                dumpTree(root, 0)
+    /**
+     * 수집 레인 — 한 종류 이벤트의 '멎은 화면에서 1회 수집' 스케줄러(main 스레드 전용).
+     *
+     *  1) debounce: 이벤트가 [SETTLE_MS] 동안 멎으면 시작. [maxWaitMs]가 있으면 첫 이벤트부터
+     *     그 시간 안엔 반드시 시작(연속 변경에도 무한 연기 방지).
+     *  2) 정지 확인: [STABLE_RECHECK_MS] 뒤 다시 읽어 말풍선·닉네임 배치가 같을 때만([FrameAssembler.sameGeometry])
+     *     먼저 읽은 스냅샷을 수집한다. settle 시점에도 삽입/스크롤 애니메이션이 남아 bounds가 흔들리면
+     *     남 말풍선을 내 것으로 오판(오수집)하므로 '연속 두 번 같은 배치'를 정지의 증거로 삼는다.
+     *     먼저 읽은 쪽을 쓰는 건 스티키 날짜 뱃지(곧 사라짐)를 최대한 살리기 위해서다.
+     *  3) 확인 중 새 이벤트가 오면 끝난 뒤 한 번 더 돈다 — 마지막 변경 뒤의 수집을 보장(누락 방지).
+     *     재확인 한도를 넘으면: 그 사이 이벤트가 있었으면(화면이 다시 움직임) 이번 건 버리고 재시도에
+     *     맡기고, 이벤트 없이 좌표만 계속 바뀌면 마지막 스냅샷으로 수집한다(수집이 조용히 멎지 않게).
+     */
+    private inner class ScrapeLane(
+        private val allowTrigger: Boolean,
+        private val fromScroll: Boolean,
+        private val maxWaitMs: Long? = null,
+    ) {
+        private var debouncing = false
+        private var firstEventAt = 0L
+        private var previous: FrameAssembler.Snapshot? = null
+        private var previousRoom = ""
+        private var checks = 0
+        private var rerun = false
+        private val tick = Runnable { onTick() }
+
+        fun onEvent() {
+            if (previous != null) { // 정지 확인 중 — 끝나면 한 번 더
+                rerun = true
                 return
             }
-            // 매 이벤트마다 '현재 방'을 툴바 제목(contentDescription)으로 식별한다 — 스크롤 중에도 안정적.
-            // 대상이면 입장+활성방 갱신, '다른 방'이면 해제(stale 활성방으로 오태깅되는 것 방지),
-            // 못 읽으면(드묾) 직전 상태 유지.
-            val targets = Settings.roomNamesList()
-            val title = currentRoomTitle(root)
-            val matched = title?.let { RoomMatch.match(it, targets) }
-            when {
-                matched != null -> {
-                    if (!inTargetRoom || activeRoom != matched) {
-                        Log.i(TAG, "entered target room: $matched")
-                        Uploader.flushUnsent() // 활동 재개 시점 — 밀린 미전송분(직전 세션 꼬리 등) 재시도
-                    }
-                    inTargetRoom = true
-                    activeRoom = matched
-                }
-                title != null -> { // 현재 방을 읽었는데 대상이 아님 → 수집 중단.
-                    inTargetRoom = false
-                    activeRoom = ""
-                }
-                // title == null: 방 식별 불가 → 직전 상태 유지(섣불리 해제/입장하지 않음).
+            val now = SystemClock.uptimeMillis()
+            if (!debouncing) {
+                debouncing = true
+                firstEventAt = now
             }
-            // 백필 세션에 방 판별 결과 통지(제목을 실제로 읽은 이벤트만 — 미상은 통지하지 않음).
-            if (title != null) BackfillController.onRoomState(matched ?: "")
-            if (inTargetRoom && activeRoom.isNotEmpty()) scrape(allowTrigger, fromScroll)
+            val untilDeadline = maxWaitMs?.let { (firstEventAt + it - now).coerceAtLeast(0) } ?: Long.MAX_VALUE
+            mainHandler.removeCallbacks(tick)
+            mainHandler.postDelayed(tick, minOf(SETTLE_MS, untilDeadline))
+        }
+
+        /** debounce 없이 지금 정지 확인을 시작(백필 워치독). 이미 확인 중이면 그 결과를 기다린다. */
+        fun runNow() {
+            if (previous != null) return
+            debouncing = true
+            mainHandler.removeCallbacks(tick)
+            mainHandler.post(tick)
+        }
+
+        private fun onTick() {
+            debouncing = false
+            val snapshot = snapshotInTargetRoom()
+            if (snapshot == null) {
+                endCheck()
+                return
+            }
+            val prev = previous
+            when {
+                prev != null && previousRoom == activeRoom && FrameAssembler.sameGeometry(prev, snapshot) -> {
+                    scrapeSafely(prev, allowTrigger, fromScroll)
+                    endCheck()
+                }
+                checks >= MAX_STABLE_CHECKS -> {
+                    if (rerun) {
+                        Log.i(TAG, "frame still moving after $checks checks — 다음 정지 때 수집")
+                    } else {
+                        Log.w(TAG, "frame geometry unstable without events — 마지막 스냅샷으로 수집")
+                        scrapeSafely(snapshot, allowTrigger, fromScroll)
+                    }
+                    endCheck()
+                }
+                else -> {
+                    previous = snapshot
+                    previousRoom = activeRoom
+                    checks++
+                    mainHandler.postDelayed(tick, STABLE_RECHECK_MS)
+                }
+            }
+        }
+
+        private fun endCheck() {
+            previous = null
+            checks = 0
+            if (rerun) {
+                rerun = false
+                onEvent()
+            }
+        }
+    }
+
+    /** 방을 판별하고 대상 방이면 PASS 1 스냅샷을 읽는다. 대상 방이 아니거나(캘리브레이션 포함) 실패면 null. */
+    private fun snapshotInTargetRoom(): FrameAssembler.Snapshot? {
+        val root = rootInActiveWindow ?: return null
+        return try {
+            if (Settings.calibrate) {
+                dumpTree(root, 0)
+                return null
+            }
+            identifyRoom(root)
+            if (inTargetRoom && activeRoom.isNotEmpty()) readFrameSnapshot() else null
+        } catch (e: Exception) {
+            Log.w(TAG, "snapshot error: ${e.message}")
+            null
+        }
+    }
+
+    private fun scrapeSafely(snapshot: FrameAssembler.Snapshot, allowTrigger: Boolean, fromScroll: Boolean) {
+        try {
+            scrape(snapshot, allowTrigger, fromScroll)
         } catch (e: Exception) {
             Log.w(TAG, "scrape error: ${e.message}")
         }
+    }
+
+    /**
+     * 현재 방을 툴바 제목(contentDescription)으로 식별해 대상 방 입장/이탈 래치를 갱신한다 — 스크롤 중에도 안정적.
+     * 대상이면 입장+활성방 갱신, '다른 방'이면 해제(stale 활성방으로 오태깅되는 것 방지),
+     * 못 읽으면(드묾) 직전 상태 유지.
+     */
+    private fun identifyRoom(root: AccessibilityNodeInfo) {
+        val targets = Settings.roomNamesList()
+        val title = currentRoomTitle(root)
+        val matched = title?.let { RoomMatch.match(it, targets) }
+        when {
+            matched != null -> {
+                if (!inTargetRoom || activeRoom != matched) {
+                    Log.i(TAG, "entered target room: $matched")
+                    Uploader.flushUnsent() // 활동 재개 시점 — 밀린 미전송분(직전 세션 꼬리 등) 재시도
+                }
+                inTargetRoom = true
+                activeRoom = matched
+            }
+            title != null -> { // 현재 방을 읽었는데 대상이 아님 → 수집 중단.
+                inTargetRoom = false
+                activeRoom = ""
+            }
+            // title == null: 방 식별 불가 → 직전 상태 유지(섣불리 해제/입장하지 않음).
+        }
+        // 백필 세션에 방 판별 결과 통지(제목을 실제로 읽은 이벤트만 — 미상은 통지하지 않음).
+        if (title != null) BackfillController.onRoomState(matched ?: "")
     }
 
     /**
@@ -200,9 +301,11 @@ class KakaoCollectorService : AccessibilityService() {
         return roots
     }
 
+    private fun isKakao(node: AccessibilityNodeInfo): Boolean = node.packageName?.toString() == Config.KAKAO_PACKAGE
+
     /**
-     * 현재 화면의 말풍선을 2-pass로 수집한다.
-     *  PASS 1([readFrameSnapshot]): 메시지(본문+좌표)·닉네임·날짜 마커·시각 라벨을 모은다(즉시 submit 안 함).
+     * 정지 확인된 화면의 말풍선을 2-pass로 수집한다.
+     *  PASS 1([readFrameSnapshot], [ScrapeLane]이 읽어 넘김): 메시지(본문+좌표)·닉네임·날짜 마커·시각 라벨.
      *  PASS 2([FrameAssembler.assemble]): 좌표로 각 메시지의 날짜·시각·보낸이를 정한다. 그 결과를
      *  sender 를 뺀 dedupe 키로 1차 차단 후 [Uploader.submit]. 보낸이를 못 정하면(닉네임이 화면 밖)
      *  그 메시지는 스킵 — 다음 스크롤에서 닉네임과 함께 보일 때 잡혀 오귀속/중복을 막는다.
@@ -215,11 +318,11 @@ class KakaoCollectorService : AccessibilityService() {
      *    [MessageStore.recordOrMerge]가 중복은 걸러내고 누락된 날짜/시각만 제자리 갱신.
      *  - 두 단계 모두 멘션 요약 트리거는 불허(백필로 지나가는 옛 명령 재발화 방지).
      */
-    private fun scrape(allowTrigger: Boolean, fromScroll: Boolean) {
+    private fun scrape(snapshot: FrameAssembler.Snapshot, allowTrigger: Boolean, fromScroll: Boolean) {
         val seekOnly = BackfillController.seekActive(activeRoom)
         val backfillCollect = BackfillController.collectActive(activeRoom)
 
-        val frame = FrameAssembler.assemble(readFrameSnapshot(), Settings.ownName)
+        val frame = FrameAssembler.assemble(snapshot, Settings.ownName)
 
         var newCount = 0
         var bottomY = Int.MIN_VALUE
@@ -230,18 +333,19 @@ class KakaoCollectorService : AccessibilityService() {
             val isNew = key !in seen
             // 백필 COLLECT는 장기 seen 캐시를 우회해 재제출하되(DB 병합이 중복은 거르고 누락
             // 날짜/시각만 채움) 세션 내에서는 키당 1회만 — 겹치는 프레임의 중복 제출 방지.
+            val sender = m.sender
             val shouldSubmit = when {
-                seekOnly || m.sender == null -> false
+                seekOnly || sender == null -> false
                 backfillCollect -> backfillSubmitted.add(key)
                 else -> isNew
             }
-            if (shouldSubmit && m.sender != null) {
+            if (shouldSubmit && sender != null) {
                 seen.add(key)
                 if (isNew) newCount++
                 val onOutcome: ((MessageStore.Outcome) -> Unit)? =
                     if (backfillCollect) BackfillController::onSubmitOutcome else null
                 Uploader.submit(
-                    MessageRecord(activeRoom, m.sender, m.text, m.date, m.sentTime),
+                    MessageRecord(activeRoom, sender, m.text, m.date, m.sentTime),
                     fromScroll = fromScroll,
                     // 로컬엔 완전해도(SKIPPED) 서버는 14일 보관으로 잃었을 수 있다 → 백필은 멱등 재전송.
                     repostOnSkip = backfillCollect,
@@ -252,7 +356,7 @@ class KakaoCollectorService : AccessibilityService() {
             if (m.bottom > bottomY) {
                 bottomY = m.bottom
                 bottomText = m.text
-                bottomIsNew = isNew && m.sender != null
+                bottomIsNew = isNew && sender != null
             }
         }
         if (newCount > 0) Log.i(TAG, "posted $newCount new message(s)")
@@ -278,7 +382,8 @@ class KakaoCollectorService : AccessibilityService() {
         val timeId = Settings.timeId
         val rect = Rect()
 
-        val roots = collectRoots()
+        // 카톡 창만 읽는다 — 다른 앱/시스템 창의 같은 id 노드가 대상 방 메시지로 섞이지 않게.
+        val roots = collectRoots().filter(::isKakao)
         val bubbles = ArrayList<FrameAssembler.Bubble>()
         val nicknames = ArrayList<SenderAssigner.NickMarker>()
         val dateMarkers = ArrayList<DateAssigner.Marker>()
@@ -314,7 +419,7 @@ class KakaoCollectorService : AccessibilityService() {
                         if (value.startsWith("Replied message") || value.startsWith("Original message")) {
                             return@walk
                         }
-                        // "답장 메시지 " 접두는 떼고 본문(=실제 답글)만 둔다. 빈 본문은 스킵.
+                        // "답장 메시지 "/"수정됨 " 라벨은 떼고 본문만 둔다. 빈 본문은 스킵.
                         val text = KakaoText.clean(value)
                         if (text.isEmpty()) return@walk
                         n.getBoundsInScreen(rect)
@@ -322,6 +427,7 @@ class KakaoCollectorService : AccessibilityService() {
                             FrameAssembler.Bubble(
                                 text = text, left = rect.left, right = rect.right,
                                 top = rect.top, bottom = rect.bottom,
+                                edited = KakaoText.isEdited(value),
                             ),
                         )
                     }
@@ -439,11 +545,8 @@ class KakaoCollectorService : AccessibilityService() {
      * 재확인해 다른 방 오발신을 막는다. main 스레드에서 호출되어야 한다.
      */
     private fun sendToRoom(room: String, text: String) {
-        val titleRoot = rootInActiveWindow
-        val title = titleRoot?.let { currentRoomTitle(it) }
-        val matchedNow = title?.let { RoomMatch.match(it, Settings.roomNamesList()) }
-        if (matchedNow != room) {
-            Log.w(TAG, "send aborted: room changed (now=$matchedNow want=$room)")
+        if (!inRoomNow(room)) {
+            Log.w(TAG, "send aborted: 현재 화면이 '$room' 방이 아님")
             return
         }
         val inputId = Settings.inputId
@@ -505,7 +608,7 @@ class KakaoCollectorService : AccessibilityService() {
     /** 지금 이 순간 '대상 방 화면'인가(패키지+툴바 제목 재확인). 다른 앱/방에 제스처 오발사 방지. */
     fun inRoomNow(room: String): Boolean {
         val root = rootInActiveWindow ?: return false
-        if (root.packageName?.toString() != Config.KAKAO_PACKAGE) return false
+        if (!isKakao(root)) return false
         val title = currentRoomTitle(root) ?: return false
         return RoomMatch.match(title, Settings.roomNamesList()) == room
     }
@@ -515,7 +618,7 @@ class KakaoCollectorService : AccessibilityService() {
      *  (1) 다른 방 안이면(입력창 존재=방 화면) 뒤로 나가 목록으로,
      *  (2) 목록에서 방 제목으로 시작하는 행을 찾아 클릭,
      *  (3) 방 행이 안 보이면 '채팅' 탭 클릭(친구/더보기 탭에서 시작한 경우).
-     * 진입 성공 여부는 이후 WINDOW_STATE_CHANGED → [identifyRoomAndScrape]의 방 판별이 확정한다.
+     * 진입 성공 여부는 이후 WINDOW_STATE_CHANGED → [identifyRoom]의 방 판별이 확정한다.
      */
     fun tryOpenRoom(room: String): Boolean {
         try {
@@ -525,8 +628,8 @@ class KakaoCollectorService : AccessibilityService() {
                 if (!inRoomNow(room)) performGlobalAction(GLOBAL_ACTION_BACK)
                 return false
             }
-            for (r in roots) {
-                if (r.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+            val kakaoRoots = roots.filter(::isKakao)
+            for (r in kakaoRoots) {
                 for (n in r.findAccessibilityNodeInfosByText(room)) {
                     val v = nodeValue(n)
                     val id = n.viewIdResourceName ?: ""
@@ -539,8 +642,7 @@ class KakaoCollectorService : AccessibilityService() {
                     }
                 }
             }
-            for (r in roots) {
-                if (r.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+            for (r in kakaoRoots) {
                 for (n in r.findAccessibilityNodeInfosByText("채팅")) {
                     val v = nodeValue(n)
                     if ((v == "채팅" || v.startsWith("채팅,") || v.startsWith("채팅 탭")) && clickNodeOrAncestor(n)) {
@@ -621,8 +723,7 @@ class KakaoCollectorService : AccessibilityService() {
         var best: AccessibilityNodeInfo? = null
         var bestArea = 0L
         val rect = Rect()
-        for (root in collectRoots()) {
-            if (root.packageName?.toString() != Config.KAKAO_PACKAGE) continue
+        for (root in collectRoots().filter(::isKakao)) {
             walk(root) { n ->
                 if (n.isScrollable) {
                     n.getBoundsInScreen(rect)
@@ -637,9 +738,9 @@ class KakaoCollectorService : AccessibilityService() {
         return best
     }
 
-    /** 백필 워치독용: settle 이벤트가 안 올 때 수동으로 한 프레임 수집을 돌린다. */
+    /** 백필 워치독용: settle 이벤트가 안 올 때 수동으로 한 프레임 수집(정지 확인 포함)을 돌린다. */
     fun forceScrape() {
-        mainHandler.post { identifyRoomAndScrape(allowTrigger = false, fromScroll = true) }
+        mainHandler.post { scrollLane.runNow() }
     }
 
     /** 백필 COLLECT 단계 시작: 세션 내 1회-제출 캐시를 비운다(이전 세션 것 제거). */

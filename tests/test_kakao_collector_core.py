@@ -219,6 +219,13 @@ class CleanTextTests(unittest.TestCase):
     def test_trims_whitespace_around_and_after_prefix(self):
         self.assertEqual(collector_core.clean_text("  답장 메시지   안녕 "), "안녕")
 
+    def test_clean_text_strips_edited_marker(self):
+        # '수정됨' 라벨은 스크랩마다 붙었다 말았다 해 같은 메시지를 두 키로 갈랐다.
+        self.assertEqual(collector_core.clean_text("수정됨 학교는 교육기관"), "학교는 교육기관")
+        self.assertEqual(collector_core.clean_text("답장 메시지 수정됨 고친 답글"), "고친 답글")
+        self.assertEqual(collector_core.clean_text("수정됨 답장 메시지 고친 답글"), "고친 답글")
+        self.assertEqual(collector_core.clean_text("내용 수정됨 끝"), "내용 수정됨 끝")
+
     def test_leaves_plain_text(self):
         self.assertEqual(collector_core.clean_text("그냥 메시지"), "그냥 메시지")
 

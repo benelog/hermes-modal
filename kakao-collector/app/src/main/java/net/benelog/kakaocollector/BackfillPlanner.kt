@@ -21,11 +21,4 @@ object BackfillPlanner {
      */
     fun collectDone(minVisibleDate: String, toDate: String): Boolean =
         minVisibleDate.isNotEmpty() && minVisibleDate > toDate
-
-    /** 두 날짜 관찰값(빈값 허용) 중 더 과거. 프레임 날짜와 스크롤 중 스티키 뱃지 관찰을 합칠 때 사용. */
-    fun minDate(a: String, b: String): String = when {
-        a.isEmpty() -> b
-        b.isEmpty() -> a
-        else -> minOf(a, b)
-    }
 }

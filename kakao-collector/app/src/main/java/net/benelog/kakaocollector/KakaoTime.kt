@@ -22,14 +22,4 @@ object KakaoTime {
         }
         return "%02d:%02d".format(h, min)
     }
-
-    /**
-     * 두 시각(HH:MM, 빈값 허용) 중 더 이른 쪽. 시각 오귀속은 항상 '늦은' 값으로만 튄다
-     * (자기 라벨이 트리에 없으면 그 아래=더 나중 묶음의 라벨을 집는 구조) — 이른 값이 진실에 가깝다.
-     */
-    fun earliest(a: String, b: String): String = when {
-        a.isEmpty() -> b
-        b.isEmpty() -> a
-        else -> minOf(a, b)
-    }
 }

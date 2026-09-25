@@ -34,13 +34,4 @@ class KakaoTimeTest {
         assertEquals("", KakaoTime.normalize("25:00")) // 시 범위 밖
         assertEquals("", KakaoTime.normalize("오후 13:00")) // 12시간제 범위 밖
     }
-
-    // 시각 오귀속은 늦은 값으로만 튀므로 이른 값이 남아야 한다. 빈값은 채워진다.
-    @Test fun earliestPrefersKnownThenSmaller() {
-        assertEquals("09:05", KakaoTime.earliest("09:05", "14:20"))
-        assertEquals("09:05", KakaoTime.earliest("14:20", "09:05"))
-        assertEquals("14:20", KakaoTime.earliest("", "14:20"))
-        assertEquals("14:20", KakaoTime.earliest("14:20", ""))
-        assertEquals("", KakaoTime.earliest("", ""))
-    }
 }

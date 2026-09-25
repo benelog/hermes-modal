@@ -13,9 +13,13 @@ package net.benelog.kakaocollector
  *    사람이 아니라 UI 라벨이므로 후보에서 제외한다.
  *  - 위에 마땅한 닉네임이 없으면 null → 호출부는 '추정 불가'로 보고 스킵(섣불리 귀속하지 않음).
  *    그 메시지는 닉네임이 함께 보이는 다음 스크롤에서 올바르게 잡힌다.
+ *  - 바로 위 닉네임 노드가 편집창 헤더("메시지 수정")면 그 말풍선은 대화가 아니라 편집 중인
+ *    원문 미리보기다 → null(수집 안 함). 예전엔 '메시지 수정'이 보낸이로 저장됐다.
  */
 object SenderAssigner {
     data class NickMarker(val top: Int, val name: String)
+
+    private const val EDIT_COMPOSER_LABEL = "메시지 수정"
 
     /** 답장 헤더 닉네임(사람이 아닌 UI 라벨)인가. */
     fun isReplyLabel(name: String): Boolean =
@@ -28,11 +32,14 @@ object SenderAssigner {
         top: Int,
         ownName: String,
         nicks: List<NickMarker>,
+        edited: Boolean = false,
     ): String? {
-        if (SenderClassifier.isClearlyOwnMessage(screenW, left, right)) {
+        val above = nicks.filter { it.top <= top }
+        if (above.maxByOrNull { it.top }?.name == EDIT_COMPOSER_LABEL) return null
+        if (SenderClassifier.isClearlyOwnMessage(screenW, left, right, edited)) {
             return ownName.ifEmpty { null }
         }
-        return nicks.filter { !isReplyLabel(it.name) && it.top <= top }
+        return above.filter { !isReplyLabel(it.name) }
             .maxByOrNull { it.top }
             ?.name
     }
