@@ -300,7 +300,7 @@ def write_hermes_config() -> None:
         return
 
     model_provider = os.environ.get("HERMES_MODEL_PROVIDER", "openai-codex")
-    model_default = os.environ.get("HERMES_MODEL", "gpt-5.5")
+    model_default = os.environ.get("HERMES_MODEL", "gpt-6-sol")
     model_base_url = os.environ.get("HERMES_MODEL_BASE_URL", "https://chatgpt.com/backend-api/codex")
 
     config = {

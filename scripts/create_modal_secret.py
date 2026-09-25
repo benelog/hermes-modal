@@ -44,7 +44,7 @@ COPY_ENV_KEYS = [
 
 DEFAULTS = {
     "HERMES_MODEL_PROVIDER": "openai-codex",
-    "HERMES_MODEL": "gpt-5.5",
+    "HERMES_MODEL": "gpt-6-sol",
     "HERMES_MODEL_BASE_URL": "https://chatgpt.com/backend-api/codex",
     "HERMES_PERSONALITY": "kawaii",
     "TELEGRAM_WEBHOOK_PORT": "8443",
