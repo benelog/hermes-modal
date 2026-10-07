@@ -399,6 +399,36 @@ def kakao_stats(token: str = "", room: str = "", start: str = "", end: str = "")
     return {"ok": True, "room": room, "start": start, "end": end, **stats}
 
 
+@app.function(
+    image=image,
+    secrets=[secret],
+    timeout=60,
+    env=common_env,
+)
+@modal.fastapi_endpoint(method="GET", label="kakao-viewer")
+def kakao_viewer(token: str = "", room: str = "", since: str = "3day"):
+    """최근 수집된 메시지를 브라우저로 훑어보는 HTML 조회 화면 (읽기 전용).
+
+    `kakao-messages`와 달리 prune하지 않고 Dict를 읽기만 한다.
+    """
+    import os
+    import sys
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+    from fastapi.responses import HTMLResponse
+
+    if token != os.environ.get("KAKAO_COLLECTOR_TOKEN", ""):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    sys.path.insert(0, KAKAO_SCRIPTS_PATH)
+    from kakao.viewer import render_viewer
+
+    records = [rec for _key, rec in kakao_dict.items()]
+    page = render_viewer(records, room, since, datetime.now(timezone.utc), token)
+    return HTMLResponse(page, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
 # Max messages fed into one summary prompt. A `since` window on a busy room could
 # be large; cap to the most recent N so the prompt stays bounded.
 KAKAO_SUMMARY_MAX_MSGS = 600
