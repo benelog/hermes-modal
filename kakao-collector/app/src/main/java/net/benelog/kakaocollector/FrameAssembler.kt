@@ -97,4 +97,20 @@ object FrameAssembler {
      */
     fun sameGeometry(a: Snapshot, b: Snapshot): Boolean =
         a.screenWidth == b.screenWidth && a.bubbles == b.bubbles && a.nicknames == b.nicknames && a.images == b.images
+
+    /**
+     * 정지 확인된 [still]에 날짜 마커가 없으면, 스티키 날짜 뱃지가 보였던 앞선 프레임 [badgeFrame]의
+     * 마커를 빌린다 — 단, 둘의 배치가 같을 때만([sameGeometry]: 같은 목록 위치 = 마커 Y가 그대로 유효).
+     * 정지한 방 화면의 트리엔 날짜 노드가 전혀 없어 뱃지(스크롤 중에만 뜸 — 방을 열기만 해선 안 뜬다,
+     * 2026-10-07 실측)가 유일한 날짜원인데, 정지 확인이 끝날 즈음엔 이미 사라져 실시간 수집분이 빈 날짜가 됐다
+     * (2026-09-26~10-07, 당일 수집분 대부분). 배치가 다르면 빌리지 않는다(틀린 날짜 = 중복 행).
+     */
+    fun withBadgeDates(still: Snapshot, badgeFrame: Snapshot?): Snapshot =
+        if (still.dateMarkers.isEmpty() && badgeFrame != null && badgeFrame.dateMarkers.isNotEmpty() &&
+            sameGeometry(badgeFrame, still)
+        ) {
+            still.copy(dateMarkers = badgeFrame.dateMarkers)
+        } else {
+            still
+        }
 }

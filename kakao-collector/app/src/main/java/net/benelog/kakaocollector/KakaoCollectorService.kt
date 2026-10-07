@@ -48,6 +48,8 @@ class KakaoCollectorService : AccessibilityService() {
         // 화면 정지 확인: 이 간격으로 다시 읽어 말풍선·닉네임 배치가 같아야 수집. 최대 재확인 횟수.
         private const val STABLE_RECHECK_MS = 150L
         private const val MAX_STABLE_CHECKS = 4
+        // 뱃지 프레임 유효 시간: 정지 확인(settle 250ms + 재확인 ≤4×150ms + 이벤트 묶음 300ms)을 넉넉히 덮는다.
+        private const val BADGE_MAX_AGE_MS = 5_000L
         private const val SEEN_CAP = 3000
         private const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30일
         // 요약문 발신: 텍스트 입력 후 카톡이 전송 버튼을 활성화할 시간을 준다.
@@ -77,6 +79,11 @@ class KakaoCollectorService : AccessibilityService() {
         val waiters: MutableList<(OcrFrame?) -> Unit>,
     )
     private var ocrInFlight: OcrRequest? = null
+
+    // 스티키 날짜 뱃지가 보였던 마지막 프레임. 정지 확인이 끝날 즈음엔 뱃지가 사라지므로, 배치가 같으면
+    // 이 프레임의 날짜 마커를 빌린다([FrameAssembler.withBadgeDates]).
+    private class BadgeFrame(val room: String, val at: Long, val snapshot: FrameAssembler.Snapshot)
+    private var badgeFrame: BadgeFrame? = null
 
     // 백필 COLLECT 세션에서 '이미 제출한 키'(장기 seen과 별개) — 겹치는 프레임의 같은 메시지를
     // 세션당 1회만 제출/재전송하기 위한 것. 세션(COLLECT 단계) 시작 때 비운다.
@@ -139,13 +146,18 @@ class KakaoCollectorService : AccessibilityService() {
                         Log.w(TAG, "identify room error: ${e.message}")
                     }
                 }
+                peekBadgeFrame()
                 windowLane.onEvent()
             }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> contentLane.onEvent()
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                peekBadgeFrame()
+                contentLane.onEvent()
+            }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 // 스티키 날짜 뱃지는 '스크롤 중'에만 트리에 뜬다 — 백필 진행 중이면 settle을
                 // 기다리지 않고 여기서 날짜만 읽어 seek/collect 종료 판정에 보탠다(수집은 안 함).
                 if (BackfillController.isRunning()) peekDatesForBackfill()
+                peekBadgeFrame()
                 scrollLane.onEvent()
             }
         }
@@ -213,14 +225,14 @@ class KakaoCollectorService : AccessibilityService() {
             when {
                 prev != null && previousRoom == activeRoom && FrameAssembler.sameGeometry(prev, snapshot) -> {
                     // 시각 OCR이 끝날 때까지 확인 중 상태를 유지(그 사이 이벤트는 rerun으로 모은다).
-                    collectWithTimes(prev, allowTrigger, fromScroll) { endCheck() }
+                    collectWithTimes(withBadgeDates(prev), allowTrigger, fromScroll) { endCheck() }
                 }
                 checks >= MAX_STABLE_CHECKS -> {
                     if (rerun) {
                         Log.i(TAG, "frame still moving after $checks checks — 다음 정지 때 수집")
                     } else {
                         Log.w(TAG, "frame geometry unstable without events — 마지막 스냅샷으로 수집")
-                        scrapeSafely(snapshot, allowTrigger, fromScroll)
+                        scrapeSafely(withBadgeDates(snapshot), allowTrigger, fromScroll)
                     }
                     endCheck()
                 }
@@ -966,6 +978,39 @@ class KakaoCollectorService : AccessibilityService() {
         } catch (e: Exception) {
             // 스크롤 이벤트 빈도로 불리므로 조용히 무시(다음 이벤트에서 다시 시도).
         }
+    }
+
+    /**
+     * 대상 방에서 스티키 날짜 뱃지가 보이면 그 순간의 프레임을 [badgeFrame]으로 기억한다. 정지한 방 화면엔
+     * 날짜 노드가 없어 뱃지가 유일한 날짜원인데, 정지 확인 뒤엔 이미 사라져 있다. 이벤트는
+     * notificationTimeout(300ms)으로 묶여 오고 전체 순회는 뱃지가 있을 때만 하므로 부담이 작다.
+     */
+    private fun peekBadgeFrame() {
+        if (!inTargetRoom || activeRoom.isEmpty()) return
+        val dateId = Settings.dateIndicatorId
+        if (dateId.isEmpty()) return
+        try {
+            val root = rootInActiveWindow ?: return
+            if (root.findAccessibilityNodeInfosByViewId(dateId).none { KakaoDate.normalize(nodeValue(it)).isNotEmpty() }) {
+                return
+            }
+            val snapshot = readFrameSnapshot()
+            if (snapshot.dateMarkers.isNotEmpty()) {
+                badgeFrame = BadgeFrame(activeRoom, SystemClock.uptimeMillis(), snapshot)
+            }
+        } catch (e: Exception) {
+            // 이벤트 빈도로 불리므로 조용히 무시(다음 이벤트에서 다시 시도).
+        }
+    }
+
+    /** 날짜 마커가 없는 정지 스냅샷에, 같은 방·같은 배치의 최근 뱃지 프레임 날짜를 빌려 붙인다. */
+    private fun withBadgeDates(snapshot: FrameAssembler.Snapshot): FrameAssembler.Snapshot {
+        val badge = badgeFrame?.takeIf {
+            it.room == activeRoom && SystemClock.uptimeMillis() - it.at <= BADGE_MAX_AGE_MS
+        }
+        val merged = FrameAssembler.withBadgeDates(snapshot, badge?.snapshot)
+        if (merged !== snapshot) Log.d(TAG, "date badge borrowed: ${merged.dateMarkers.map { it.date }}")
+        return merged
     }
 
     private fun walk(node: AccessibilityNodeInfo?, visit: (AccessibilityNodeInfo) -> Unit) {

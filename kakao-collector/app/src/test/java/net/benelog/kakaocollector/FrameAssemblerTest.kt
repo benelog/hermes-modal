@@ -122,6 +122,27 @@ class FrameAssemblerTest {
         assertTrue(FrameAssembler.sameGeometry(withBadge, snapshot(bubble("메시지", top = 300))))
     }
 
+    // 정지 화면엔 날짜 노드가 없다 → 같은 배치였던 뱃지 프레임의 날짜를 빌려 실시간 수집분도 날짜를 얻는다.
+    @Test fun borrowsBadgeDatesFromSameGeometryFrame() {
+        val badge = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-10-07")))
+        val still = FrameAssembler.withBadgeDates(snapshot(bubble("메시지", top = 300)), badge)
+        assertEquals(listOf("2026-10-07"), still.dateMarkers.map { it.date })
+    }
+
+    // 목록이 움직인 뒤(배치 다름)면 마커 Y가 무효 → 빌리지 않고 빈 날짜(틀린 날짜는 중복 행을 만든다).
+    @Test fun doesNotBorrowBadgeDatesWhenGeometryDiffers() {
+        val badge = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-10-07")))
+        assertTrue(FrameAssembler.withBadgeDates(snapshot(bubble("메시지", top = 120)), badge).dateMarkers.isEmpty())
+        assertTrue(FrameAssembler.withBadgeDates(snapshot(bubble("메시지", top = 300)), null).dateMarkers.isEmpty())
+    }
+
+    // 정지 프레임이 스스로 날짜를 봤으면 그게 더 최신 — 그대로 둔다.
+    @Test fun keepsOwnDatesOverBadgeFrame() {
+        val badge = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-10-06")))
+        val own = snapshot(bubble("메시지", top = 300), dates = listOf(DateAssigner.Marker(100, "2026-10-07")))
+        assertEquals(listOf("2026-10-07"), FrameAssembler.withBadgeDates(own, badge).dateMarkers.map { it.date })
+    }
+
     // 공지 배너에 아래끝이 가려진 말풍선은 자기 시각 라벨이 안 보인다 → 아래 다른 묶음 라벨을 집지 않고 미상.
     @Test fun sentTimeBlankWhenBubbleBottomIsUnderOverlay() {
         val snapshot = FrameAssembler.Snapshot(
