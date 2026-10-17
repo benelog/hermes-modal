@@ -92,8 +92,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Run `git pull --rebase origin master` after committing.
      - If a simple conflict occurs only in the file edited for this task, resolve it when the intended merge is obvious: preserve upstream restructuring/renamed headings and insert only the scoped new note/link in the most appropriate surviving section. Then run `git diff --check`, `git add <path>`, and `GIT_EDITOR=true git rebase --continue`.
      - If the conflict affects unrelated content, has ambiguous ordering/meaning, or spans files outside the request scope, stop and report it instead of guessing.
-   - Discover the remote default branch rather than assuming `master` (e.g. authenticated GitHub repository API `default_branch`, or `git remote show origin`). The devnote remote uses `main` even when a pre-existing local checkout is named `master`; use `git pull --rebase origin main` and `git push origin HEAD:main` in that case. Apply the discovered branch to the pull commands above as well.
-   - Push the scoped commit to the discovered remote default branch.
+   - Run `git push origin master`.
    - Verify clean status and capture `git rev-parse --short HEAD`.
 
 ## Final response
