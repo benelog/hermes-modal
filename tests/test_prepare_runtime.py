@@ -12,6 +12,33 @@ spec.loader.exec_module(prepare_runtime)
 
 
 class PrepareRuntimeTests(unittest.TestCase):
+    def test_sync_model_config_repins_stale_model_and_keeps_other_settings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.yaml"
+            config_path.write_text(
+                "model:\n  default: gpt-5.5\n  provider: openai-codex\n  extra: keep\n"
+                "display:\n  personality: kawaii\n",
+                encoding="utf-8",
+            )
+            old = {k: os.environ.pop(k, None) for k in ("HERMES_MODEL", "HERMES_MODEL_PROVIDER", "HERMES_MODEL_BASE_URL")}
+            try:
+                prepare_runtime.sync_model_config(config_path)
+            finally:
+                os.environ.update({k: v for k, v in old.items() if v is not None})
+
+            config = prepare_runtime.yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            config["model"],
+            {
+                "default": "gpt-6-astra",
+                "provider": "openai-codex",
+                "extra": "keep",
+                "base_url": "https://chatgpt.com/backend-api/codex",
+            },
+        )
+        self.assertEqual(config["display"], {"personality": "kawaii"})
+
     def test_load_repo_specs_reads_qmd_git_repo_manifest(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             manifest = Path(tmpdir) / "qmd_repos.yml"

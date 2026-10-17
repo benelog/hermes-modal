@@ -294,21 +294,42 @@ def patch_hermes_non_retryable_traceback() -> None:
     print(f"patched {target} to log traceback on non-retryable client errors")
 
 
+def model_config() -> dict:
+    return {
+        "default": os.environ.get("HERMES_MODEL", "gpt-6-astra"),
+        "provider": os.environ.get("HERMES_MODEL_PROVIDER", "openai-codex"),
+        "base_url": os.environ.get("HERMES_MODEL_BASE_URL", "https://chatgpt.com/backend-api/codex"),
+    }
+
+
+def sync_model_config(config_path: Path) -> None:
+    """Keep the volume config's model section pinned to the env/defaults.
+
+    The rest of config.yaml is left alone, but a running gateway container can
+    commit its stale config.yaml back to the volume (e.g. on shutdown during a
+    deploy), silently reverting a model change. Re-applying the model section
+    on every start makes the repo/secret the source of truth for the model.
+    """
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    model = config.get("model") if isinstance(config.get("model"), dict) else {}
+    wanted = model_config()
+    if all(model.get(k) == v for k, v in wanted.items()):
+        print(f"hermes model: {wanted['default']}")
+        return
+    print(f"synced hermes model: {model.get('default')} -> {wanted['default']}")
+    config["model"] = {**model, **wanted}
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    config_path.chmod(0o600)
+
+
 def write_hermes_config() -> None:
     config_path = HERMES_HOME / "config.yaml"
     if config_path.exists() and os.environ.get("HERMES_MODAL_OVERWRITE_CONFIG", "").lower() not in {"1", "true", "yes"}:
+        sync_model_config(config_path)
         return
 
-    model_provider = os.environ.get("HERMES_MODEL_PROVIDER", "openai-codex")
-    model_default = os.environ.get("HERMES_MODEL", "gpt-6-astra")
-    model_base_url = os.environ.get("HERMES_MODEL_BASE_URL", "https://chatgpt.com/backend-api/codex")
-
     config = {
-        "model": {
-            "default": model_default,
-            "provider": model_provider,
-            "base_url": model_base_url,
-        },
+        "model": model_config(),
         "agent": {
             "max_turns": int(os.environ.get("HERMES_MAX_ITERATIONS", "90")),
             "gateway_timeout": int(os.environ.get("HERMES_GATEWAY_TIMEOUT", "1800")),
