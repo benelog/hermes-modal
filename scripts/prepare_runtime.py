@@ -360,7 +360,7 @@ def write_hermes_config() -> None:
 
     config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
     config_path.chmod(0o600)
-    print(f"wrote {config_path}")
+    print(f"wrote {config_path} (model={model_provider}/{model_default})")
 
 
 def write_env_file() -> None:
