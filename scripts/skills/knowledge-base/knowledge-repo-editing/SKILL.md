@@ -84,7 +84,6 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - If the repository was clean at the start and the edit may conflict with recent remote knowledge-base updates, prefer `git pull --rebase origin master` before editing or immediately before final verification to reduce post-commit conflicts.
 
 7. **Commit and push by default**
-   - Discover the live default branch with `git ls-remote --symref origin HEAD` before pull/push; local tracking refs and README may be stale. devnote may have local `master` while remote default is `main`. In that case use `git pull --rebase origin main` and `git push origin HEAD:main`, not a new remote master branch.
    - Configure repo identity if missing:
      - `git config user.name "Sanghyuk Jung"`
      - `git config user.email "benelog@gmail.com"`
