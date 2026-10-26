@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PreToolUse(Bash): force a confirmation prompt on `modal deploy`.
 
-The Modal app is the production Telegram/Kakao bot; deploys must never slip
+The Modal app is the production Telegram bot; deploys must never slip
 through on auto-approved Bash permissions.
 """
 import json
@@ -15,7 +15,7 @@ if "modal deploy" in cmd:
             "hookEventName": "PreToolUse",
             "permissionDecision": "ask",
             "permissionDecisionReason": (
-                "modal deploy touches the PRODUCTION Telegram/Kakao bot. "
+                "modal deploy touches the PRODUCTION Telegram bot. "
                 "Confirm with the user before deploying."
             ),
         }
