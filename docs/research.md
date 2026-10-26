@@ -1,7 +1,6 @@
 # Platform research findings
 
-Durable facts about the Modal/Hermes runtime. KakaoTalk collection facts moved to
-[benelog/kakao-to-google-sheet](https://github.com/benelog/kakao-to-google-sheet) `docs/research.md`.
+Durable facts about the Modal/Hermes runtime.
 
 ## Modal platform
 

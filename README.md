@@ -253,8 +253,3 @@ modal run modal_app.py::commit_skills
 ### 컨테이너 시작 시 config가 갱신되지 않음
 
 `prepare_runtime.py` 변경이 반영되지 않으면 `HERMES_MODAL_OVERWRITE_CONFIG=1`이 secret/env에 들어가 있는지 확인하세요. `modal_app.py`의 `common_env` 기본값이지만 secret으로 덮어써졌을 수 있습니다.
-
-## 카카오톡 대화방 요약(옮김)
-
-카카오톡 대화방 수집은 [benelog/kakao-to-google-sheet](https://github.com/benelog/kakao-to-google-sheet)(Android 앱 → Google Sheet)로,
-ABC 대화방 주간 요약은 abc-library 배치(`batch weekly`, ABC 밴드에 게시)로 옮겼다. 이 저장소에는 카카오톡 관련 코드가 없다.

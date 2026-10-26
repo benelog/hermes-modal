@@ -1,6 +1,6 @@
 # hermes-modal
 
-Zero-cost personal bot stack on Modal: Hermes Telegram gateway + qmd knowledge search (`modal_app.py`, `scripts/`). KakaoTalk collection moved to `benelog/kakao-to-google-sheet` and the ABC weekly summary to the abc-library batch — don't add Kakao code back here.
+Zero-cost personal bot stack on Modal: Hermes Telegram gateway + qmd knowledge search (`modal_app.py`, `scripts/`).
 
 ## Commands
 - Server tests: `python3 -m unittest discover -s tests` (no pytest)
