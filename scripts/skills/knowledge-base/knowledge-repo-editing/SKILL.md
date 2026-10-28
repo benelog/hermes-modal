@@ -92,7 +92,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Run `git pull --rebase origin master` after committing.
      - If a simple conflict occurs only in the file edited for this task, resolve it when the intended merge is obvious: preserve upstream restructuring/renamed headings and insert only the scoped new note/link in the most appropriate surviving section. Then run `git diff --check`, `git add <path>`, and `GIT_EDITOR=true git rebase --continue`.
      - If the conflict affects unrelated content, has ambiguous ordering/meaning, or spans files outside the request scope, stop and report it instead of guessing.
-   - Run `git push origin HEAD:<remote-branch>` using the verified remote branch. Do not assume `master`: check `git branch -vv` and `git ls-remote --symref origin HEAD` before pulling/pushing. A local `master` can track remote `main`; in that case use `git pull --rebase origin main` and `git push origin HEAD:main`.
+   - Run `git push origin master`.
    - Verify clean status and capture `git rev-parse --short HEAD`.
 
 ## Final response
