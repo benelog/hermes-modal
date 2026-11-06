@@ -84,6 +84,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - If the repository was clean at the start and the edit may conflict with recent remote knowledge-base updates, prefer `git pull --rebase origin master` before editing or immediately before final verification to reduce post-commit conflicts.
 
 7. **Commit and push by default**
+   - Discover the current branch and remote default before pulling/pushing; `master` below is an example, not a fixed name. The wiki repository may use `main`. Use `git branch --show-current` and `git ls-remote --symref origin HEAD` (avoid printing credential-bearing remote URLs).
    - Configure repo identity if missing:
      - `git config user.name "Sanghyuk Jung"`
      - `git config user.email "benelog@gmail.com"`
@@ -92,7 +93,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - Run `git pull --rebase origin master` after committing.
      - If a simple conflict occurs only in the file edited for this task, resolve it when the intended merge is obvious: preserve upstream restructuring/renamed headings and insert only the scoped new note/link in the most appropriate surviving section. Then run `git diff --check`, `git add <path>`, and `GIT_EDITOR=true git rebase --continue`.
      - If the conflict affects unrelated content, has ambiguous ordering/meaning, or spans files outside the request scope, stop and report it instead of guessing.
-   - Run `git push origin <branch>` using the verified current/default branch, not a hard-coded `master`. Before any pull/rebase, inspect `git branch --show-current` and remote HEAD (`git ls-remote --symref origin HEAD`); use that branch in all commands above. The wiki repository uses `main`; an old local `master` / `origin/master` may remain stale.
+   - Run `git push origin master`.
    - Verify clean status and capture `git rev-parse --short HEAD`.
 
 ## Final response
