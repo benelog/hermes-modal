@@ -84,7 +84,7 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
    - If the repository was clean at the start and the edit may conflict with recent remote knowledge-base updates, prefer `git pull --rebase origin master` before editing or immediately before final verification to reduce post-commit conflicts.
 
 7. **Commit and push by default**
-   - Discover the current branch and remote default before pulling/pushing; `master` below is an example, not a fixed name. The wiki repository may use `main`. Use `git branch --show-current` and `git ls-remote --symref origin HEAD` (avoid printing credential-bearing remote URLs).
+   - Before pulling or pushing, discover the actual branch with `git branch --show-current` and its upstream. The wiki repository uses `main`; do not assume `master`. Substitute the actual branch in all commands below.
    - Configure repo identity if missing:
      - `git config user.name "Sanghyuk Jung"`
      - `git config user.email "benelog@gmail.com"`
