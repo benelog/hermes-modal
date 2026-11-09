@@ -89,7 +89,8 @@ Default to `devnote` only when the user names devnote or the topic is clearly de
      - `git config user.email "benelog@gmail.com"`
    - Stage only files modified for this request.
    - Commit with a concise message, e.g. `Add <topic> link summary`, `Update <topic> reference`, or `Add <page> notes`.
-   - Run `git pull --rebase origin master` after committing.
+   - Discover the actual current/default branch before pulling or pushing (`git branch --show-current`, repo site config, or `git ls-remote --symref origin HEAD`); do not assume `master`. The wiki repository uses `main` as of November 2026, and local upstream configuration may still point to the deleted remote `master`; use explicit `origin main` in that case.
+   - Run `git pull --rebase origin <branch>` after committing.
      - If a simple conflict occurs only in the file edited for this task, resolve it when the intended merge is obvious: preserve upstream restructuring/renamed headings and insert only the scoped new note/link in the most appropriate surviving section. Then run `git diff --check`, `git add <path>`, and `GIT_EDITOR=true git rebase --continue`.
      - If the conflict affects unrelated content, has ambiguous ordering/meaning, or spans files outside the request scope, stop and report it instead of guessing.
    - Run `git push origin master`.
