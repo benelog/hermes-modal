@@ -156,6 +156,91 @@ def cron_tick():
     return f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
 
 
+# ---------------------------------------------------------------- 서점 순위 추적
+# 위키북스 「AI 에이전트와 스프링 배치를 활용한 배치 엔지니어링」의 YES24·교보문고·알라딘
+# 순위를 매일 07:00 KST에 수집해 Telegram으로 보내고, 날짜별 표 페이지를 제공한다.
+# Hermes 런타임이 필요 없어 표준 라이브러리 + fastapi만 든 가벼운 이미지를 쓴다.
+# 이력은 Volume에 둔다(Modal Dict는 7일 미접근 시 만료되므로 장기 보관에 부적합).
+BOOK_RANK_DIR = "/data/book-rank"
+BOOK_RANK_HISTORY = f"{BOOK_RANK_DIR}/history.json"
+book_rank_volume = modal.Volume.from_name("book-rank", create_if_missing=True)
+book_rank_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("fastapi[standard]")
+    .add_local_file("scripts/book_rank.py", remote_path="/root/book_rank.py")
+)
+
+
+@app.function(
+    image=book_rank_image,
+    secrets=[secret],
+    volumes={BOOK_RANK_DIR: book_rank_volume},
+    timeout=60 * 5,
+    max_containers=1,
+    schedule=modal.Cron("0 7 * * *", timezone="Asia/Seoul"),
+)
+def book_rank_tick(notify: bool = True):
+    """서점 3곳의 순위를 수집·저장하고 Telegram으로 보고한다.
+
+    수동 실행: `modal run modal_app.py::book_rank_tick` (같은 날짜는 덮어씀).
+    """
+    import os
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    import book_rank
+
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today = now.strftime("%Y-%m-%d")
+    path = Path(BOOK_RANK_HISTORY)
+
+    book_rank_volume.reload()
+    results = book_rank.collect_all()
+    records = book_rank.upsert_record(
+        book_rank.load_history(path), today, results, now.isoformat(timespec="seconds")
+    )
+    book_rank.save_history(path, records)
+    book_rank_volume.commit()
+
+    try:
+        page_url = book_rank_page.get_web_url()
+    except Exception:
+        page_url = None
+    message = book_rank.format_telegram_message(records, today, page_url)
+    print(message)
+
+    if notify:
+        token = os.environ["TELEGRAM_BOT_TOKEN"]
+        # 별도 지정이 없으면 허용 사용자 목록의 첫 사용자(개인 DM)로 보낸다.
+        chat_id = os.environ.get("BOOK_RANK_CHAT_ID", "").strip() or (
+            os.environ["TELEGRAM_ALLOWED_USERS"].split(",")[0].strip()
+        )
+        book_rank.send_telegram(token, chat_id, message)
+    return message
+
+
+@app.function(
+    image=book_rank_image,
+    volumes={BOOK_RANK_DIR: book_rank_volume},
+    timeout=30,
+    max_containers=1,
+    scaledown_window=60,
+)
+@modal.fastapi_endpoint(method="GET", label="book-rank")
+def book_rank_page():
+    """날짜별 서점 순위 표(HTML)."""
+    from pathlib import Path
+
+    from fastapi.responses import HTMLResponse
+
+    import book_rank
+
+    book_rank_volume.reload()
+    records = book_rank.load_history(Path(BOOK_RANK_HISTORY))
+    return HTMLResponse(book_rank.render_html(records))
+
+
 @app.function(
     image=image,
     secrets=[secret, github_secret],

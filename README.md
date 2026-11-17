@@ -16,6 +16,10 @@
   - `sync_qmd`: repo clone/pull + qmd update/embed
   - `commit_skills`: Modal volume에 쌓인 runtime skill 변경을 git으로 push (Hermes `agent:end` hook이 자동 호출, 수동 디버깅용으로도 사용)
   - `doctor`: Modal runtime에서 Hermes/qmd 상태 확인
+  - `book_rank_tick`: 매일 07:00 KST에 「AI 에이전트와 스프링 배치를 활용한 배치 엔지니어링」의 YES24·교보문고·알라딘 순위(부문 포함)를 수집해 Telegram으로 보고. 전날 대비 변동과 집계 부문 변경을 표시. 수동 실행은 `modal run modal_app.py::book_rank_tick`
+  - `book_rank_page`: 날짜별 순위 표 웹 페이지(`https://benelog--book-rank.modal.run`). 이력은 Volume `book-rank`의 `history.json`
+- `scripts/book_rank.py`
+  - 서점 순위 수집·파싱·이력·메시지·HTML 렌더링(표준 라이브러리만 사용). 대상 도서/서점 URL은 파일 상단 `STORES`
 - `scripts/prepare_runtime.py`
   - Modal volume 안의 Hermes config, `.env`, qmd config, repo clone/pull을 준비
   - `HERMES_MODAL_OVERWRITE_CONFIG=1`이면 컨테이너 시작마다 config.yaml을 다시 씀
@@ -160,7 +164,8 @@ Telegram에서 봇에게 메시지를 보내서 end-to-end로 확인합니다.
 - `min_containers`는 지정하지 않았습니다. Telegram 메시지가 들어올 때만 container가 켜지고, 유휴 상태가 `scaledown_window`(현재 600초) 동안 이어지면 자동 종료됩니다. 24/7 과금을 피하려는 설정입니다.
 - 첫 메시지는 cold start로 몇 초~십수 초 늦어질 수 있습니다. 응답 지연이 부담되면 `min_containers=1`을 다시 추가하면 되지만, 그러면 사용량과 무관하게 매월 고정 비용이 발생합니다.
 - `max_containers=1`로 Telegram bot 중복 실행을 막았습니다. 동시 webhook 처리는 `@modal.concurrent(max_inputs=50)`으로 한 컨테이너 안에서 받습니다.
-- Modal volume 4개를 사용합니다: `hermes-home`, `hermes-workspace`, `qmd-cache`, `qmd-config`. 첫 deploy 때 자동 생성됩니다.
+- Modal volume 5개를 사용합니다: `hermes-home`, `hermes-workspace`, `qmd-cache`, `qmd-config`, `book-rank`. 첫 deploy 때 자동 생성됩니다.
+- 서점 순위 보고는 `TELEGRAM_ALLOWED_USERS`의 첫 사용자에게 DM으로 갑니다. 다른 채팅으로 보내려면 Modal Secret에 `BOOK_RANK_CHAT_ID`를 추가하세요. 교보문고는 CloudFront가 비브라우저 요청에 빈 응답을 줄 수 있어 그날은 "수집 실패"로 기록되고, 다음 비교는 직전 정상 수집분과 합니다.
 - qmd 문서 업데이트는 cron/GitHub Actions에서 `modal run modal_app.py::sync_qmd`를 주기적으로 호출하는 방식이 깔끔합니다.
 - qmd embedding/rerank는 `QMD_LLAMA_GPU=false`로 CPU에서 돕니다. 속도가 부족하면 GPU로 바꾸세요.
 - runtime에서 만들어진 skill은 `agent:end` hook이 `commit_skills` function을 호출해 이 repo에 자동 push합니다. 최근 커밋의 `Sync skills from Modal volume`이 그 결과입니다.
