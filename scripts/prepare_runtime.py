@@ -29,6 +29,7 @@ SOUL_SOURCE = Path(__file__).with_name("SOUL.md")
 SKILLS_SOURCE = Path(__file__).with_name("skills")
 HOOKS_SOURCE = Path(__file__).with_name("hooks")
 CRON_SCRIPTS_SOURCE = Path(__file__).with_name("cron")
+PLUGINS_SOURCE = Path(__file__).with_name("plugins")
 IMAGE_MANIFEST_NAME = ".image-manifest.txt"
 
 
@@ -158,6 +159,10 @@ def sync_hooks_dir() -> None:
 
 def sync_cron_scripts_dir() -> None:
     sync_image_dir(CRON_SCRIPTS_SOURCE, HERMES_HOME / "scripts")
+
+
+def sync_plugins_dir() -> None:
+    sync_image_dir(PLUGINS_SOURCE, HERMES_HOME / "plugins")
 
 
 def patch_hermes_skill_command_path_filter() -> None:
@@ -355,6 +360,8 @@ def write_hermes_config() -> None:
                 "command": "(HERMES_ACCEPT_HOOKS=1 /usr/local/bin/hermes cron run 157db4a4b6c3 && HERMES_ACCEPT_HOOKS=1 /usr/local/bin/hermes cron tick) >/tmp/hermes-english-cron-trigger.log 2>&1 & echo '영어학습 cronjob 실행을 요청했습니다. 잠시 후 결과가 이 채팅으로 도착합니다.'",
             },
         },
+        # 사용자 플러그인은 opt-in. book-rank: /kyobo 교보문고 순위 수동 기록
+        "plugins": {"enabled": ["book-rank"]},
         "_config_version": 22,
     }
 
@@ -481,6 +488,7 @@ def main() -> None:
     sync_skills_dir()
     sync_hooks_dir()
     sync_cron_scripts_dir()
+    sync_plugins_dir()
     patch_hermes_skill_command_path_filter()
     patch_hermes_non_retryable_traceback()
     patch_openai_parse_response_none_output()

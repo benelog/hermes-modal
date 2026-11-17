@@ -1,0 +1,4 @@
+name: book-rank
+version: 1.0.0
+description: "Telegram /kyobo 명령으로 교보문고 순위를 수동 기록한다(Modal book_rank_manual 호출)."
+author: benelog

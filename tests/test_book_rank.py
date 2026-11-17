@@ -140,5 +140,74 @@ class HistoryTests(unittest.TestCase):
         self.assertIn("아직 수집된 기록이 없습니다", book_rank.render_html([]))
 
 
+class ManualInputTests(unittest.TestCase):
+    def test_rank_only_uses_previous_category(self):
+        date, r = book_rank.parse_manual_input("117", "컴퓨터/IT")
+        self.assertIsNone(date)
+        self.assertEqual((r.category, r.rank, r.note, r.manual), ("컴퓨터/IT", 117, "주간", True))
+
+    def test_category_date_and_suffix(self):
+        date, r = book_rank.parse_manual_input("2026-11-18 컴퓨터/IT 117위", None)
+        self.assertEqual((date, r.category, r.rank), ("2026-11-18", "컴퓨터/IT", 117))
+        _, r = book_rank.parse_manual_input("IT 일반 3 위", "컴퓨터/IT")
+        self.assertEqual((r.category, r.rank), ("IT 일반", 3))
+
+    def test_no_rank(self):
+        _, r = book_rank.parse_manual_input("없음", "컴퓨터/IT")
+        self.assertIsNone(r.rank)
+        self.assertIsNone(r.error)
+
+    def test_invalid_or_missing_category(self):
+        with self.assertRaises(ValueError):
+            book_rank.parse_manual_input("abc", "컴퓨터/IT")
+        with self.assertRaises(ValueError):
+            book_rank.parse_manual_input("117", None)
+
+    def test_auto_failure_keeps_manual_value(self):
+        recs = book_rank.upsert_record([], "2026-11-18", {
+            "yes24": rank("IT 모바일", 84),
+            "kyobo": book_rank.StoreRank("kyobo", error="빈 응답"),
+        }, "t1")
+        _, manual = book_rank.parse_manual_input("컴퓨터/IT 117", None)
+        recs = book_rank.upsert_record(recs, "2026-11-18", {"kyobo": manual}, "t1")
+        self.assertEqual(recs[0]["stores"]["yes24"]["rank"], 84)  # 다른 서점은 유지
+        recs = book_rank.upsert_record(recs, "2026-11-18", {
+            "yes24": rank("IT 모바일", 80),
+            "kyobo": book_rank.StoreRank("kyobo", error="빈 응답"),
+        }, "t2")
+        stores = recs[0]["stores"]
+        self.assertEqual(stores["yes24"]["rank"], 80)
+        self.assertEqual((stores["kyobo"]["rank"], stores["kyobo"]["manual"]), (117, True))
+        msg = book_rank.format_telegram_message(recs, "2026-11-18")
+        self.assertIn("교보문고: 컴퓨터/IT 주간 117위 (수동)", msg)
+
+    def test_failure_message_has_kyobo_hint(self):
+        recs = book_rank.upsert_record([], "2026-11-18", {"kyobo": book_rank.StoreRank("kyobo", error="x")}, "t")
+        self.assertIn("/kyobo 117", book_rank.format_telegram_message(recs, "2026-11-18"))
+
+    def test_last_category_skips_errors(self):
+        recs = book_rank.upsert_record([], "2026-11-17", {"kyobo": rank("컴퓨터/IT", 120)}, "t")
+        recs = book_rank.upsert_record(recs, "2026-11-18", {"kyobo": book_rank.StoreRank("kyobo", error="x")}, "t")
+        self.assertEqual(book_rank.last_category(recs, "kyobo"), "컴퓨터/IT")
+
+
+class PluginTests(unittest.TestCase):
+    def test_registers_kyobo_command_and_shows_usage(self):
+        import asyncio
+        path = MODULE_PATH.parent / "plugins" / "book-rank" / "__init__.py"
+        pspec = importlib.util.spec_from_file_location("book_rank_plugin", path)
+        plugin = importlib.util.module_from_spec(pspec)
+        pspec.loader.exec_module(plugin)
+        registered = {}
+
+        class Ctx:
+            def register_command(self, name, handler, description="", args_hint=""):
+                registered[name] = handler
+
+        plugin.register(Ctx())
+        self.assertIn("kyobo", registered)
+        self.assertIn("/kyobo 117", asyncio.run(registered["kyobo"]("  ")))
+
+
 if __name__ == "__main__":
     unittest.main()

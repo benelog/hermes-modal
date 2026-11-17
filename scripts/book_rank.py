@@ -58,6 +58,7 @@ class StoreRank:
     rank: int | None = None  # None이면 순위권 밖 또는 수집 실패
     note: str | None = None  # 부가 정보(예: "IT 모바일 top100 1주")
     error: str | None = None  # 수집 실패 사유
+    manual: bool = False  # 메신저로 수동 입력한 값
 
     def label(self) -> str:
         if self.error:
@@ -208,15 +209,65 @@ def save_history(path: Path, records: list[dict]) -> None:
     tmp.replace(path)
 
 
+def _entry(result: StoreRank) -> dict:
+    entry = {f: v for f, v in asdict(result).items() if f != "store"}
+    if not entry["manual"]:
+        del entry["manual"]
+    return entry
+
+
 def upsert_record(records: list[dict], date: str, results: dict[str, StoreRank], fetched_at: str) -> list[dict]:
-    """같은 날짜를 다시 수집하면 덮어쓴다. 날짜 오름차순 유지."""
-    record = {
-        "date": date,
-        "fetched_at": fetched_at,
-        "stores": {k: {f: v for f, v in asdict(r).items() if f != "store"} for k, r in results.items()},
-    }
+    """같은 날짜를 다시 수집하면 서점별로 덮어쓴다. 날짜 오름차순 유지.
+
+    새 결과가 수집 실패이고 기존 값이 정상(예: 메신저 수동 입력)이면 기존 값을 지킨다.
+    결과에 없는 서점의 기존 값도 그대로 둔다.
+    """
+    existing = next((r for r in records if r["date"] == date), None)
+    stores = dict(existing["stores"]) if existing else {}
+    for key, result in results.items():
+        old = stores.get(key)
+        if result.error and old and not old.get("error"):
+            continue
+        stores[key] = _entry(result)
+    record = {"date": date, "fetched_at": fetched_at, "stores": stores}
     others = [r for r in records if r["date"] != date]
     return sorted(others + [record], key=lambda r: r["date"])
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def parse_manual_input(text: str, default_category: str | None) -> tuple[str | None, StoreRank]:
+    """메신저 입력을 해석한다. 반환: (날짜 또는 None=오늘, StoreRank).
+
+    예) "117" / "117위" / "컴퓨터/IT 117위" / "2026-11-18 컴퓨터/IT 117" / "없음"
+    부문을 생략하면 default_category(직전 기록의 부문)를 쓴다.
+    """
+    tokens = text.split()
+    date = None
+    if tokens and _DATE_RE.match(tokens[0]):
+        date = tokens.pop(0)
+    rest = " ".join(tokens).strip()
+    if rest in ("없음", "순위없음", "순위 없음", "-"):
+        return date, StoreRank("kyobo", default_category, None, "주간", manual=True)
+    m = re.match(r"^(?:(?P<category>.+?)\s+)?(?P<rank>\d{1,5})\s*위?$", rest)
+    if not m:
+        raise ValueError(
+            "형식을 모르겠어요. 예: /kyobo 117 · /kyobo 컴퓨터/IT 117위 · "
+            "/kyobo 2026-11-18 컴퓨터/IT 117 · /kyobo 없음"
+        )
+    category = (m.group("category") or "").strip() or default_category
+    if not category:
+        raise ValueError("이전 교보 부문 기록이 없어요. 부문도 함께 적어 주세요. 예: /kyobo 컴퓨터/IT 117")
+    return date, StoreRank("kyobo", category, int(m.group("rank")), "주간", manual=True)
+
+
+def last_category(records: list[dict], store: str) -> str | None:
+    for rec in reversed(records):
+        entry = rec.get("stores", {}).get(store) or {}
+        if entry.get("category") and not entry.get("error"):
+            return entry["category"]
+    return None
 
 
 def _previous_ok(records: list[dict], date: str, store: str) -> dict | None:
@@ -294,8 +345,12 @@ def format_telegram_message(records: list[dict], date: str, page_url: str | None
             line += f" ({delta})"
         if entry.get("dropped_out"):
             line += " (순위권 이탈)"
+        if entry.get("manual"):
+            line += " (수동)"
         if entry.get("error"):
             line += f" — {entry['error']}"
+            if key == "kyobo":
+                line += "\n  ↳ 확인 후 /kyobo 117 처럼 보내면 기록됩니다"
         lines.append(line)
         if entry.get("category_changed_from"):
             changes.append(f"• {name}: {entry['category_changed_from']} → {entry.get('category')}")
@@ -330,7 +385,8 @@ def render_html(records: list[dict]) -> str:
             inner = f'<span class="rank">{entry["rank"]}위</span>'
             if delta:
                 inner += f' <span class="delta {delta_cls}">{delta}</span>'
-            inner += f'<div class="cat">{cat}{" · " + period if period else ""}</div>'
+            manual = " · 수동" if entry.get("manual") else ""
+            inner += f'<div class="cat">{cat}{" · " + period if period else ""}{manual}</div>'
             if changed:
                 inner += f'<div class="chg">부문 변경: {html.escape(changed)} → {cat}</div>'
             cells.append(f"<td{cls}>{inner}</td>")

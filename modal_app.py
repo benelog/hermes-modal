@@ -221,6 +221,46 @@ def book_rank_tick(notify: bool = True):
 @app.function(
     image=book_rank_image,
     volumes={BOOK_RANK_DIR: book_rank_volume},
+    timeout=60,
+    max_containers=1,
+)
+def book_rank_manual(text: str) -> str:
+    """메신저에서 확인한 교보문고 순위를 기록하고 갱신된 요약을 돌려준다.
+
+    교보는 클라우드 IP에서 빈 응답을 주므로 사람이 확인해 넣는다.
+    Telegram `/kyobo <입력>` 플러그인(scripts/plugins/book-rank)이 호출한다.
+    예: "117", "컴퓨터/IT 117위", "2026-11-18 컴퓨터/IT 117", "없음"
+    """
+    from datetime import datetime
+    from pathlib import Path
+    from zoneinfo import ZoneInfo
+
+    import book_rank
+
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    path = Path(BOOK_RANK_HISTORY)
+    book_rank_volume.reload()
+    records = book_rank.load_history(path)
+    try:
+        date, result = book_rank.parse_manual_input(
+            text, book_rank.last_category(records, "kyobo")
+        )
+    except ValueError as exc:
+        return f"⚠️ {exc}"
+    date = date or now.strftime("%Y-%m-%d")
+    existing = next((r for r in records if r["date"] == date), None)
+    fetched_at = existing["fetched_at"] if existing else now.isoformat(timespec="seconds")
+    records = book_rank.upsert_record(records, date, {"kyobo": result}, fetched_at)
+    book_rank.save_history(path, records)
+    book_rank_volume.commit()
+    return "✅ 교보문고 순위를 기록했어요.\n\n" + book_rank.format_telegram_message(
+        records, date, BOOK_RANK_PAGE_URL
+    )
+
+
+@app.function(
+    image=book_rank_image,
+    volumes={BOOK_RANK_DIR: book_rank_volume},
     timeout=30,
     max_containers=1,
     scaledown_window=60,

@@ -17,6 +17,7 @@
   - `commit_skills`: Modal volume에 쌓인 runtime skill 변경을 git으로 push (Hermes `agent:end` hook이 자동 호출, 수동 디버깅용으로도 사용)
   - `doctor`: Modal runtime에서 Hermes/qmd 상태 확인
   - `book_rank_tick`: 매일 07:00 KST에 「AI 에이전트와 스프링 배치를 활용한 배치 엔지니어링」의 YES24·교보문고·알라딘 순위(부문 포함)를 수집해 Telegram으로 보고. 전날 대비 변동과 집계 부문 변경을 표시. 수동 실행은 `modal run modal_app.py::book_rank_tick`
+  - `book_rank_manual`: 교보문고 순위 수동 기록. Telegram에서 `/kyobo 117`, `/kyobo 컴퓨터/IT 117위`, `/kyobo 2026-11-18 컴퓨터/IT 117`, `/kyobo 없음`으로 호출(`scripts/plugins/book-rank` 플러그인 → 이 함수). 같은 날 자동 수집이 실패해도 수동 값은 덮어쓰지 않음
   - `book_rank_page`: 날짜별 순위 표 웹 페이지(`https://benelog--book-rank.modal.run`). 이력은 Volume `book-rank`의 `history.json`
 - `scripts/book_rank.py`
   - 서점 순위 수집·파싱·이력·메시지·HTML 렌더링(표준 라이브러리만 사용). 대상 도서/서점 URL은 파일 상단 `STORES`
@@ -32,6 +33,8 @@
   - Modal volume(`/root/.hermes/skills`)의 변경분을 이 repo의 `scripts/skills/`로 복사 후 git push
 - `scripts/SOUL.md`
   - Modal runtime의 `~/.hermes/SOUL.md`로 배포되는 Hermes persona/지침 파일
+- `scripts/plugins/`
+  - Hermes 사용자 플러그인. `prepare_runtime.py`가 `~/.hermes/plugins`로 동기화하고 config의 `plugins.enabled`로 켬
 - `scripts/hooks/`, `scripts/skills/`
   - Hermes hook, skill 정의. `prepare_runtime.py`가 컨테이너 부팅 시 `~/.hermes` 아래로 동기화
 
