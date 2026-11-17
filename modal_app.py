@@ -163,6 +163,7 @@ def cron_tick():
 # 이력은 Volume에 둔다(Modal Dict는 7일 미접근 시 만료되므로 장기 보관에 부적합).
 BOOK_RANK_DIR = "/data/book-rank"
 BOOK_RANK_HISTORY = f"{BOOK_RANK_DIR}/history.json"
+BOOK_RANK_PAGE_URL = "https://benelog--book-rank.modal.run"  # book_rank_page의 label 기반 주소
 book_rank_volume = modal.Volume.from_name("book-rank", create_if_missing=True)
 book_rank_image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -203,11 +204,8 @@ def book_rank_tick(notify: bool = True):
     book_rank.save_history(path, records)
     book_rank_volume.commit()
 
-    try:
-        page_url = book_rank_page.get_web_url()
-    except Exception:
-        page_url = None
-    message = book_rank.format_telegram_message(records, today, page_url)
+    # `modal run`(임시 앱)에서도 배포본 주소가 나가도록 고정 URL을 쓴다.
+    message = book_rank.format_telegram_message(records, today, BOOK_RANK_PAGE_URL)
     print(message)
 
     if notify:
