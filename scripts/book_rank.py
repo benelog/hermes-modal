@@ -32,9 +32,20 @@ STORES = [
 STORE_NAMES = {key: name for key, name, _ in STORES}
 
 USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 )
+# 교보문고는 UA만 브라우저여도 빈 응답을 준다. 일반 브라우저의 페이지 이동 헤더를
+# 함께 보내야 HTML이 온다(2026-11-18 확인).
+BROWSER_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 # "IT 모바일 84위", "컴퓨터/모바일 주간 85위", "컴퓨터/IT 117위"
 _RANK_RE = re.compile(r"^\s*(?P<category>.+?)\s+(?P<rank>\d{1,5})\s*위\s*$")
@@ -74,13 +85,10 @@ def parse_rank_text(text: str) -> tuple[str | None, int | None]:
 
 
 def http_get(url: str, referer: str | None = None, timeout: int = 20) -> str:
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9",
-    }
+    headers = dict(BROWSER_HEADERS)
     if referer:
         headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "same-origin"
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = resp.read()
@@ -138,6 +146,10 @@ def parse_kyobo_rank(product_html: str) -> StoreRank:
         if rank is not None:
             period = anchor.group(1).split("/")
             note = {"daily": "일간", "weekly": "주간", "monthly": "월간"}.get(period[1]) if len(period) > 1 else None
+            # 앵커 안의 "주간베스트" 라벨은 부문이 아니라 집계 기간이다.
+            m = re.match(r"(일간|주간|월간)\s*베스트\s+(.+)", category or "")
+            if m:
+                note, category = m.group(1), m.group(2)
             return StoreRank("kyobo", category, rank, note)
     return StoreRank("kyobo")
 

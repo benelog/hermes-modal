@@ -37,7 +37,7 @@ ALADIN_PRODUCT = """
 """
 
 KYOBO_PRODUCT = """
-<div class="flex items-center gap-1"><a draggable="false" class="flex items-center gap-1" href="https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/33"><div class="flex"><svg width="24"><path d="M1 2"/></svg><span>컴퓨터/IT</span> <span>117위</span></div></a></div>
+<div class="flex items-center gap-1"><a draggable="false" class="flex items-center gap-1" href="https://store.kyobobook.co.kr/bestseller/online/weekly/domestic/33"><div class="flex"><svg width="24"><path d="M1 2"/></svg><span>주간베스트</span><span>컴퓨터/IT</span> <span>117</span><span>위</span></div></a></div>
 """
 
 
