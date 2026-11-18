@@ -47,6 +47,17 @@ BROWSER_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
+# 교보 상품 페이지는 Modal(클라우드) IP에 빈 응답을 준다. 그때는 Jina Reader
+# (r.jina.ai, 무료·무키)가 대신 받아 오게 하고, X-Target-Selector로 순위 링크(<a>)만
+# 돌려받는다. 274KB 페이지가 1~2KB로 줄고 기존 파서를 그대로 쓴다(2026-11-19 확인).
+KYOBO_READER_PREFIX = "https://r.jina.ai/"
+KYOBO_READER_HEADERS = {
+    "X-Target-Selector": 'a[href*="/bestseller/"]',
+    "X-Return-Format": "html",
+    "X-No-Cache": "true",
+    "Accept": "text/plain",
+}
+
 # "IT 모바일 84위", "컴퓨터/모바일 주간 85위", "컴퓨터/IT 117위"
 _RANK_RE = re.compile(r"^\s*(?P<category>.+?)\s+(?P<rank>\d{1,5})\s*위\s*$")
 
@@ -85,11 +96,15 @@ def parse_rank_text(text: str) -> tuple[str | None, int | None]:
     return m.group("category").strip(), int(m.group("rank"))
 
 
-def http_get(url: str, referer: str | None = None, timeout: int = 20) -> str:
-    headers = dict(BROWSER_HEADERS)
-    if referer:
-        headers["Referer"] = referer
-        headers["Sec-Fetch-Site"] = "same-origin"
+def http_get(
+    url: str, referer: str | None = None, headers: dict | None = None, timeout: int = 30
+) -> str:
+    """headers를 주면 브라우저 헤더 대신 그것만 보낸다(Reader 프록시 호출용)."""
+    if headers is None:
+        headers = dict(BROWSER_HEADERS)
+        if referer:
+            headers["Referer"] = referer
+            headers["Sec-Fetch-Site"] = "same-origin"
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = resp.read()
@@ -170,12 +185,33 @@ def fetch_aladin(url: str, get: Callable[..., str] = http_get) -> StoreRank:
     return parse_aladin_rank(get(url))
 
 
-def fetch_kyobo(url: str, get: Callable[..., str] = http_get) -> StoreRank:
-    page = get(url)
-    if not page.strip():
-        # 교보는 CloudFront가 비브라우저 요청에 빈 응답을 돌려줄 때가 있다.
-        return StoreRank("kyobo", error="빈 응답(접근 차단 추정)")
+def _kyobo_from_page(page: str) -> StoreRank:
+    """순위 링크가 하나도 없으면 페이지를 제대로 못 받은 것이다(순위 없음과 구분).
+
+    상단 메뉴의 '베스트' 링크(/bestseller/online/daily)는 순위와 무관하게 항상 있다.
+    """
+    if "/bestseller/" not in page:
+        return StoreRank("kyobo", error="응답에 베스트셀러 영역 없음")
     return parse_kyobo_rank(page)
+
+
+def fetch_kyobo(url: str, get: Callable[..., str] = http_get) -> StoreRank:
+    try:
+        page = get(url)
+    except Exception as exc:
+        direct = f"{type(exc).__name__}: {exc}"
+    else:
+        if page.strip():
+            return _kyobo_from_page(page)
+        # 교보 CloudFront는 클라우드 IP 요청에 빈 응답을 돌려준다.
+        direct = "빈 응답(접근 차단 추정)"
+    try:
+        result = _kyobo_from_page(get(KYOBO_READER_PREFIX + url, headers=KYOBO_READER_HEADERS))
+    except Exception as exc:
+        result = StoreRank("kyobo", error=f"{type(exc).__name__}: {exc}")
+    if result.error:
+        result.error = f"직접: {direct} / 우회: {result.error}"[:200]
+    return result
 
 
 FETCHERS = {"yes24": fetch_yes24, "kyobo": fetch_kyobo, "aladin": fetch_aladin}
@@ -337,7 +373,7 @@ def format_telegram_message(records: list[dict], date: str, page_url: str | None
     rec = annotated[date]
     lines = [f"📚 {BOOK_SHORT_TITLE} 서점 순위 ({date})", ""]
     changes = []
-    for key, name, _url in STORES:
+    for key, name, url in STORES:
         entry = rec["stores"].get(key, {"error": "기록 없음"})
         line = f"• {name}: {_entry_label(entry)}"
         delta = _delta_text(entry)
@@ -349,8 +385,10 @@ def format_telegram_message(records: list[dict], date: str, page_url: str | None
             line += " (수동)"
         if entry.get("error"):
             line += f" — {entry['error']}"
+            # 수동 확인이 쉽도록 상품 페이지를 바로 열 수 있는 링크를 붙인다.
+            line += f"\n  ↳ 확인: {url}"
             if key == "kyobo":
-                line += "\n  ↳ 확인 후 /kyobo 117 처럼 보내면 기록됩니다"
+                line += "\n  ↳ /kyobo 117 처럼 보내면 기록됩니다"
         lines.append(line)
         if entry.get("category_changed_from"):
             changes.append(f"• {name}: {entry['category_changed_from']} → {entry.get('category')}")

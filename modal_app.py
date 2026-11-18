@@ -227,7 +227,7 @@ def book_rank_tick(notify: bool = True):
 def book_rank_manual(text: str) -> str:
     """메신저에서 확인한 교보문고 순위를 기록하고 갱신된 요약을 돌려준다.
 
-    교보는 클라우드 IP에서 빈 응답을 주므로 사람이 확인해 넣는다.
+    교보 자동 수집(직접 + Jina Reader 우회)이 실패한 날 사람이 확인해 넣는다.
     Telegram `/kyobo <입력>` 플러그인(scripts/plugins/book-rank)이 호출한다.
     예: "117", "컴퓨터/IT 117위", "2026-11-18 컴퓨터/IT 117", "없음"
     """

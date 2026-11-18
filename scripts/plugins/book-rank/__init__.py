@@ -1,8 +1,8 @@
 """`/kyobo <순위>` — 메신저에서 확인한 교보문고 순위를 기록한다.
 
-교보문고는 클라우드 IP에서 빈 응답을 주므로 자동 수집이 안 된다. 사람이 확인한
-순위를 이 명령으로 보내면 Modal의 `book_rank_manual` 함수가 이력(Volume)에 넣고
-갱신된 요약을 돌려준다. LLM을 거치지 않는 결정적 명령이다.
+교보문고는 클라우드 IP에서 빈 응답을 주므로 자동 수집은 Jina Reader 우회에 기댄다.
+우회까지 실패한 날 사람이 확인한 순위를 이 명령으로 보내면 Modal의 `book_rank_manual`
+함수가 이력(Volume)에 넣고 갱신된 요약을 돌려준다. LLM을 거치지 않는 결정적 명령이다.
 """
 
 from __future__ import annotations

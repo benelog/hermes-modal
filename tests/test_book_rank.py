@@ -42,7 +42,7 @@ KYOBO_PRODUCT = """
 
 
 def fake_get(pages):
-    def get(url, referer=None):
+    def get(url, referer=None, headers=None):
         for key, body in pages.items():
             if key in url:
                 return body
@@ -69,12 +69,43 @@ class ParserTests(unittest.TestCase):
         r = book_rank.parse_kyobo_rank(KYOBO_PRODUCT)
         self.assertEqual((r.category, r.rank, r.note), ("컴퓨터/IT", 117, "주간"))
 
-    def test_kyobo_blank_response_is_reported_as_error(self):
-        r = book_rank.fetch_kyobo("https://product.kyobobook.co.kr/detail/x", lambda url, referer=None: "")
+    def test_kyobo_blank_response_falls_back_to_reader(self):
+        calls = []
+
+        def get(url, referer=None, headers=None):
+            calls.append((url, headers))
+            return "" if len(calls) == 1 else KYOBO_PRODUCT
+
+        r = book_rank.fetch_kyobo("https://product.kyobobook.co.kr/detail/x", get)
+        self.assertEqual((r.category, r.rank, r.error), ("컴퓨터/IT", 117, None))
+        self.assertEqual(calls[1][0], "https://r.jina.ai/https://product.kyobobook.co.kr/detail/x")
+        self.assertIn("/bestseller/", calls[1][1]["X-Target-Selector"])
+
+    def test_kyobo_reports_both_failures(self):
+        def get(url, referer=None, headers=None):
+            if url.startswith("https://r.jina.ai/"):
+                raise TimeoutError("timed out")
+            return ""
+
+        r = book_rank.fetch_kyobo("https://product.kyobobook.co.kr/detail/x", get)
+        self.assertIsNone(r.rank)
         self.assertIn("빈 응답", r.error)
+        self.assertIn("우회: TimeoutError", r.error)
+
+    def test_kyobo_page_without_bestseller_links_is_error_not_unranked(self):
+        def get(url, referer=None, headers=None):
+            return "" if "jina" not in url else "<html><body>Rate limit</body></html>"
+
+        r = book_rank.fetch_kyobo("https://product.kyobobook.co.kr/detail/x", get)
+        self.assertIn("베스트셀러 영역 없음", r.error)
+
+    def test_kyobo_unranked_page_is_not_error(self):
+        menu_only = '<a href="https://store.kyobobook.co.kr/bestseller/online/daily">베스트</a>'
+        r = book_rank.fetch_kyobo("https://product.kyobobook.co.kr/detail/x", lambda url, **kw: menu_only)
+        self.assertEqual((r.rank, r.error), (None, None))
 
     def test_collect_all_isolates_failures(self):
-        def get(url, referer=None):
+        def get(url, referer=None, headers=None):
             if "aladin" in url:
                 raise TimeoutError("timed out")
             if "kyobo" in url:
@@ -181,9 +212,11 @@ class ManualInputTests(unittest.TestCase):
         msg = book_rank.format_telegram_message(recs, "2026-11-18")
         self.assertIn("교보문고: 컴퓨터/IT 주간 117위 (수동)", msg)
 
-    def test_failure_message_has_kyobo_hint(self):
+    def test_failure_message_has_kyobo_hint_and_product_link(self):
         recs = book_rank.upsert_record([], "2026-11-18", {"kyobo": book_rank.StoreRank("kyobo", error="x")}, "t")
-        self.assertIn("/kyobo 117", book_rank.format_telegram_message(recs, "2026-11-18"))
+        msg = book_rank.format_telegram_message(recs, "2026-11-18")
+        self.assertIn("/kyobo 117", msg)
+        self.assertIn("↳ 확인: https://product.kyobobook.co.kr/detail/S000221888579", msg)
 
     def test_last_category_skips_errors(self):
         recs = book_rank.upsert_record([], "2026-11-17", {"kyobo": rank("컴퓨터/IT", 120)}, "t")

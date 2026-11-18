@@ -168,7 +168,7 @@ Telegram에서 봇에게 메시지를 보내서 end-to-end로 확인합니다.
 - 첫 메시지는 cold start로 몇 초~십수 초 늦어질 수 있습니다. 응답 지연이 부담되면 `min_containers=1`을 다시 추가하면 되지만, 그러면 사용량과 무관하게 매월 고정 비용이 발생합니다.
 - `max_containers=1`로 Telegram bot 중복 실행을 막았습니다. 동시 webhook 처리는 `@modal.concurrent(max_inputs=50)`으로 한 컨테이너 안에서 받습니다.
 - Modal volume 5개를 사용합니다: `hermes-home`, `hermes-workspace`, `qmd-cache`, `qmd-config`, `book-rank`. 첫 deploy 때 자동 생성됩니다.
-- 서점 순위 보고는 `TELEGRAM_ALLOWED_USERS`의 첫 사용자에게 DM으로 갑니다. 다른 채팅으로 보내려면 Modal Secret에 `BOOK_RANK_CHAT_ID`를 추가하세요. 교보문고는 UA만 브라우저로 바꾸면 빈 응답을 주므로 `book_rank.py`의 `BROWSER_HEADERS`(Sec-Fetch-* 등)를 함께 보냅니다. 수집에 실패한 날은 "수집 실패"로 기록되고, 다음 비교는 직전 정상 수집분과 합니다.
+- 서점 순위 보고는 `TELEGRAM_ALLOWED_USERS`의 첫 사용자에게 DM으로 갑니다. 다른 채팅으로 보내려면 Modal Secret에 `BOOK_RANK_CHAT_ID`를 추가하세요. 교보문고는 UA만 브라우저로 바꾸면 빈 응답을 주므로 `book_rank.py`의 `BROWSER_HEADERS`(Sec-Fetch-* 등)를 함께 보냅니다. 그래도 Modal(클라우드) IP에는 빈 응답을 주므로, 그때는 Jina Reader(`r.jina.ai`, 무료·무키)로 다시 받아 오되 `X-Target-Selector`로 순위 링크만 받습니다(`KYOBO_READER_*`). 수집에 실패한 날은 "수집 실패"로 기록되고 Telegram 메시지에 상품 페이지 링크가 붙으며, 다음 비교는 직전 정상 수집분과 합니다.
 - qmd 문서 업데이트는 cron/GitHub Actions에서 `modal run modal_app.py::sync_qmd`를 주기적으로 호출하는 방식이 깔끔합니다.
 - qmd embedding/rerank는 `QMD_LLAMA_GPU=false`로 CPU에서 돕니다. 속도가 부족하면 GPU로 바꾸세요.
 - runtime에서 만들어진 skill은 `agent:end` hook이 `commit_skills` function을 호출해 이 repo에 자동 push합니다. 최근 커밋의 `Sync skills from Modal volume`이 그 결과입니다.
