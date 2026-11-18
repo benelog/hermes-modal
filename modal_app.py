@@ -19,6 +19,7 @@ import modal
 APP_NAME = "hermes-telegram-gateway"
 SECRET_NAME = "hermes-modal-secrets"
 WEBHOOK_PORT = 8443
+GATEWAY_URL = "https://benelog--hermes-telegram-gateway-gateway.modal.run"
 
 HERMES_HOME = "/root/.hermes"
 WORKSPACE_DIR = "/root/workspace"
@@ -62,7 +63,7 @@ common_env = {
     "HERMES_HOME": HERMES_HOME,
     "QMD_CONFIG_DIR": QMD_CONFIG_DIR,
     "TELEGRAM_WEBHOOK_PORT": str(WEBHOOK_PORT),
-    "TELEGRAM_WEBHOOK_URL": "https://benelog--hermes-telegram-gateway-gateway.modal.run/telegram",
+    "TELEGRAM_WEBHOOK_URL": f"{GATEWAY_URL}/telegram",
     # Modal containers do not need Telegram fallback IP hacking; the default
     # api.telegram.org route is cleaner in the cloud.
     "HERMES_TELEGRAM_DISABLE_FALLBACK_IPS": "1",
@@ -121,39 +122,58 @@ def gateway():
     )
 
 
+# gateway를 깨워 두는 동안 쓰는 핑 간격과 유지 시간. gateway의 scaledown_window(10분)보다
+# 짧은 간격으로 핑을 보내야 컨테이너가 내려가지 않는다.
+CRON_WAKE_MINUTES = 15
+CRON_PING_INTERVAL = 60
+cron_wake_image = modal.Image.debian_slim(python_version="3.11")
+
+
 @app.function(
-    image=image,
-    secrets=[secret, github_secret],
-    volumes=volume_mounts,
-    timeout=60 * 60,
+    image=cron_wake_image,
+    timeout=60 * (CRON_WAKE_MINUTES + 5),
     max_containers=1,
     schedule=modal.Cron("0 7,19 * * *", timezone="Asia/Seoul"),
-    env=common_env,
 )
-def cron_tick():
-    """Wake the Modal app every morning/evening and run due Hermes cron jobs.
+def cron_tick(minutes: int = CRON_WAKE_MINUTES):
+    """07:00·19:00 KST에 gateway를 깨워 두어 gateway 내장 스케줄러가 due job을 실행하게 한다.
 
-    Hermes' built-in scheduler only ticks while the gateway process is running.
-    This Modal schedule keeps the Telegram webhook server scale-to-zero friendly:
-    Modal wakes a short-lived container at 07:00 and 19:00 KST, runs
-    `hermes cron tick`, persists cron state/output back to the Hermes volume,
-    and exits.
+    예전에는 이 함수가 별도 컨테이너에서 `hermes cron tick`을 직접 돌렸다. 그러면 마침
+    대화 중이던 gateway 컨테이너와 같은 볼륨의 SQLite(state.db)를 동시에 쓰게 되고, 각자
+    커밋하면서 DB가 깨졌다(2026-10-29 07:00 KST 손상, 2026-11-19 복구). 그래서 이 함수는
+    hermes-home 볼륨을 마운트하지 않고 HTTP 핑만 보낸다. state.db를 쓰는 컨테이너는
+    gateway(max_containers=1) 하나뿐이 된다.
+
+    - gateway 내장 스케줄러는 60초 간격으로 돌며, 깨어나면 밀린 due job을 바로 실행한다.
+    - 마지막 핑 뒤에도 gateway는 scaledown_window(10분)만큼 더 살아 있으므로 작업 시간은
+      대략 `minutes + 10`분까지 보장된다.
+    - 수동 실행: `modal run modal_app.py::cron_tick` (배포된 gateway를 깨운다)
     """
-    import subprocess
+    import time
+    import urllib.error
+    import urllib.request
 
-    hermes_volume.reload()
-    subprocess.run(
-        ["python", "/opt/hermes-modal/scripts/prepare_runtime.py", "--fast"],
-        check=True,
-    )
-    result = subprocess.run(
-        ["hermes", "cron", "tick"],
-        capture_output=True,
-        text=True,
-    )
-    hermes_volume.commit()
-    result.check_returncode()
-    return f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    # 존재하지 않는 경로라 gateway는 404를 돌려주지만, 요청 자체가 컨테이너를 깨우고
+    # 유휴 타이머를 초기화한다. Telegram 웹훅(/telegram)은 건드리지 않는다.
+    url = f"{GATEWAY_URL}/cron-wake"
+    deadline = time.monotonic() + minutes * 60
+    statuses = []
+    while True:
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(url, timeout=180) as resp:
+                status = str(resp.status)
+        except urllib.error.HTTPError as exc:
+            status = str(exc.code)
+        except Exception as exc:  # 일시 오류는 다음 핑에서 재시도
+            status = type(exc).__name__
+        statuses.append(f"{status}({time.monotonic() - started:.0f}s)")
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(CRON_PING_INTERVAL)
+    summary = f"gateway 깨움 핑 {len(statuses)}회: {' '.join(statuses)}"
+    print(summary)
+    return summary
 
 
 # ---------------------------------------------------------------- 서점 순위 추적
